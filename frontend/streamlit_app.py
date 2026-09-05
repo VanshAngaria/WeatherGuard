@@ -92,34 +92,121 @@ html, body, [class*="css"] {
     margin: 0;
 }
 
-/* Pipeline bar */
-.pipeline-bar {
+/* Center Help Card — What I Can Help With */
+.help-card {
+    background: #121829;
+    border: 1px solid #233354;
+    border-radius: 10px;
+    padding: 1rem 1.3rem;
+    margin-bottom: 1.3rem;
+}
+
+.help-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.8rem;
+    border-bottom: 1px solid #1c2740;
+    padding-bottom: 0.5rem;
+}
+
+.help-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #e2edfa;
+    letter-spacing: -0.2px;
+}
+
+.help-subtitle {
+    font-size: 0.77rem;
+    color: #799ec2;
+    font-style: italic;
+}
+
+.help-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.5rem;
+}
+
+@media (max-width: 768px) {
+    .help-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+.help-chip {
+    background: #172136;
+    border: 1px solid #293a5c;
+    border-radius: 6px;
+    padding: 0.5rem 0.65rem;
+    font-size: 0.79rem;
+    color: #b0c9e8;
+    font-weight: 500;
     display: flex;
     align-items: center;
-    gap: 0;
-    background: #141824;
-    border: 1px solid #2a3550;
+    gap: 0.4rem;
+    transition: all 0.15s ease;
+}
+
+.help-chip:hover {
+    background: #202e4d;
+    border-color: #3b5380;
+    color: #ffffff;
+}
+
+/* Sidebar Pipeline Stepper */
+.sidebar-pipeline {
+    background: #111827;
+    border: 1px solid #1e2d45;
     border-radius: 8px;
-    padding: 0.7rem 1.2rem;
-    margin-bottom: 1.2rem;
-    overflow-x: auto;
-    flex-wrap: nowrap;
+    padding: 0.85rem 1rem;
+    margin: 0.6rem 0;
 }
 
-.pipeline-step {
-    font-size: 0.72rem;
-    font-weight: 600;
-    color: #8faecf;
-    white-space: nowrap;
-    letter-spacing: 0.3px;
-    text-transform: uppercase;
+.pipeline-step-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.65rem;
 }
 
-.pipeline-arrow {
-    color: #2d4a7a;
-    margin: 0 0.55rem;
-    font-size: 0.8rem;
+.pipeline-step-badge {
+    background: #1b2742;
+    color: #72a4e2;
+    border: 1px solid #2d4570;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.68rem;
+    font-weight: 700;
     flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.pipeline-step-text {
+    font-size: 0.78rem;
+    color: #b0cceb;
+    line-height: 1.3;
+}
+
+.pipeline-step-text small {
+    color: #5c7ba1;
+    font-size: 0.69rem;
+    display: block;
+    margin-top: 1px;
+}
+
+.pipeline-step-connector {
+    color: #273b5c;
+    font-size: 0.75rem;
+    padding-left: 0.42rem;
+    line-height: 1;
+    margin: 3px 0;
 }
 
 /* Example prompts section */
@@ -319,30 +406,38 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # About / how it works
-    st.markdown("#### How It Works")
+    # Decision pipeline (the former center flow, now clearly in sidebar)
+    st.markdown("#### ⚙️ Decision Pipeline")
+    st.caption("How your request is processed:")
     st.markdown("""
-<div style="font-size:0.8rem; color:#7b9ec7; line-height:2;">
-📝 <b>Question</b> &nbsp;→&nbsp; Understand context<br>
-🔍 <b>Context</b> &nbsp;→&nbsp; Resolve location<br>
-🌤️ <b>Weather</b> &nbsp;→&nbsp; Live Open-Meteo data<br>
-📋 <b>SOP</b> &nbsp;&nbsp;&nbsp;&nbsp;→&nbsp; Match safety policy<br>
-💬 <b>Advisory</b> → Policy-based answer
+<div class="sidebar-pipeline">
+  <div class="pipeline-step-item">
+    <span class="pipeline-step-badge">1</span>
+    <div class="pipeline-step-text"><b>Your Question</b><small>Extract intent &amp; context</small></div>
+  </div>
+  <div class="pipeline-step-connector">│</div>
+  <div class="pipeline-step-item">
+    <span class="pipeline-step-badge">2</span>
+    <div class="pipeline-step-text"><b>Understand Context</b><small>Session memory &amp; time</small></div>
+  </div>
+  <div class="pipeline-step-connector">│</div>
+  <div class="pipeline-step-item">
+    <span class="pipeline-step-badge">3</span>
+    <div class="pipeline-step-text"><b>Live Weather</b><small>Open-Meteo current &amp; forecast</small></div>
+  </div>
+  <div class="pipeline-step-connector">│</div>
+  <div class="pipeline-step-item">
+    <span class="pipeline-step-badge">4</span>
+    <div class="pipeline-step-text"><b>Match Safety SOP</b><small>Deterministic policy evaluation</small></div>
+  </div>
+  <div class="pipeline-step-connector">│</div>
+  <div class="pipeline-step-item">
+    <span class="pipeline-step-badge">5</span>
+    <div class="pipeline-step-text"><b>Policy Advisory</b><small>Traceable decision &amp; facts</small></div>
+  </div>
 </div>
 """, unsafe_allow_html=True)
-    st.caption("The LLM handles language. The SOP engine makes all safety decisions.")
-
-    st.markdown("---")
-    st.markdown("#### What I Can Help With")
-    st.markdown("""
-<div style="font-size:0.79rem; color:#7b9ec7; line-height:1.9;">
-🚴 Cycling &nbsp;&nbsp; 🚶 Walking &nbsp;&nbsp; 🏃 Running<br>
-🚗 Commuting &nbsp;&nbsp; 🛵 Scooter / Motorbike<br>
-🧺 Picnics &amp; outdoor recreation<br>
-👨‍👩‍👧 Children outdoors &nbsp;&nbsp; 👴 Elderly outdoor activities
-</div>
-""", unsafe_allow_html=True)
-    st.caption("Only activities with defined safety policies are supported.")
+    st.caption("The LLM handles language understanding. The deterministic SOP engine makes all safety decisions.")
 
 # ---------------------------------------------------------------------------
 # Main content area — header
@@ -356,18 +451,23 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Pipeline bar
+# What I Can Help With — Center card
 st.markdown("""
-<div class="pipeline-bar">
-  <span class="pipeline-step">📝 Your Question</span>
-  <span class="pipeline-arrow">→</span>
-  <span class="pipeline-step">🧠 Understand Context</span>
-  <span class="pipeline-arrow">→</span>
-  <span class="pipeline-step">🌤️ Live Weather</span>
-  <span class="pipeline-arrow">→</span>
-  <span class="pipeline-step">📋 Match Safety SOP</span>
-  <span class="pipeline-arrow">→</span>
-  <span class="pipeline-step">💬 Policy Advisory</span>
+<div class="help-card">
+  <div class="help-header">
+    <span class="help-title">💡 What I Can Help With</span>
+    <span class="help-subtitle">Only activities with defined safety policies are supported.</span>
+  </div>
+  <div class="help-grid">
+    <div class="help-chip">🚴 <span>Cycling</span></div>
+    <div class="help-chip">🚶 <span>Walking</span></div>
+    <div class="help-chip">🏃 <span>Running</span></div>
+    <div class="help-chip">🚗 <span>Commuting</span></div>
+    <div class="help-chip">🛵 <span>Scooter / Motorbike</span></div>
+    <div class="help-chip">🧺 <span>Picnics &amp; outdoor recreation</span></div>
+    <div class="help-chip">👨‍👩‍👧 <span>Children outdoors</span></div>
+    <div class="help-chip">👴 <span>Elderly outdoor activities</span></div>
+  </div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -453,9 +553,9 @@ if prompt_to_run:
     # This is display-only — actual context is managed by LangGraph MemorySaver
     _ctx = st.session_state.session_context
 
-    # Extract location from "Weather Advisory — LOCATION" pattern
+    # Extract location from answer text
     import re
-    loc_match = re.search(r"Weather Advisory\s*[—–-]+\s*(.+?)[\n\*]", answer)
+    loc_match = re.search(r"(?:Weather Advisory\s*[—–-]+\s*|Current conditions in\s+)(.+?)(?:[\n\*]|\s*:\s*🌡️)", answer)
     if loc_match:
         raw_loc = loc_match.group(1).strip().rstrip("*")
         if raw_loc and raw_loc not in {"your location", ""}:
