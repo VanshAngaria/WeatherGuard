@@ -39,7 +39,7 @@ htmlcov/
 langgraph_store/
 
 # Streamlit
-.streamlit/
+.streamlit/secrets.toml
 
 # Logs
 *.log

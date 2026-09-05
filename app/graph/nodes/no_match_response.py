@@ -1,19 +1,3 @@
-"""
-Node: no_match_response
-Produces an honest response when no SOP matches.
-
-Two distinct scenarios:
-A) ACTIVITY HAS NO SOP COVERAGE
-   The user asked about an activity we don't have a policy for.
-   → "We don't have a safety SOP for this activity."
-
-B) CONDITIONS ARE WITHIN SAFE RANGES
-   The activity is covered but no safety threshold was exceeded.
-   → "✅ No safety concerns found — conditions look fine."
-
-Does NOT call the LLM. Does NOT invent safety advice.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -24,15 +8,9 @@ from app.policy.loader import get_sops
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# SOP category awareness
-# ---------------------------------------------------------------------------
 
 def _any_sop_covers_categories(intent_categories: List[str]) -> bool:
-    """
-    Return True if at least one loaded SOP applies to any of the intent categories.
-    This distinguishes "no SOP for this activity" from "SOP exists but conditions OK".
-    """
+    """Return True if at least one SOP covers the intent categories."""
     sops = get_sops()
     for sop in sops:
         if "*" in sop.applies_to_categories:
@@ -43,12 +21,8 @@ def _any_sop_covers_categories(intent_categories: List[str]) -> bool:
     return False
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 def _build_weather_inline(facts) -> str:
-    """Build a compact weather summary line (pipe-separated)."""
+    """Build a compact inline weather summary line."""
     parts = []
     if facts:
         if facts.temperature_2m is not None:
@@ -59,122 +33,64 @@ def _build_weather_inline(facts) -> str:
             parts.append(f"🌧️ **{facts.precipitation_probability}%** rain chance")
         if facts.uv_index is not None:
             parts.append(f"☀️ UV **{facts.uv_index}**")
-    return " | ".join(parts) if parts else "(weather data unavailable)"
+        if facts.visibility is not None:
+            parts.append(f"👁️ **{facts.visibility // 1000} km** visibility")
+    return " · ".join(parts) if parts else "Weather data available"
 
 
-def _build_conditions_block(facts) -> str:
-    """Build bullet-list conditions block."""
-    lines = []
-    if not facts:
-        return "  • (weather data unavailable)"
+_SUPPORTED_ACTIVITIES_LIST = """
+**Supported activity types include:**
+• 🚴 **Cycling** (commute, road, mountain)
+• 🚶 **Walking & Pedestrian travel**
+• 🏃 **Running & Outdoor exercise**
+• 🚗 **Commuting & Two-wheelers** (motorbikes, scooters)
+• 🧺 **Picnics & Outdoor recreation**
+• 👨‍👩‍👧 **Activities with children**
+• 👴 **Activities for elderly persons**
+"""
 
-    field_labels = {
-        "temperature_2m":            ("🌡️ Temperature",           "°C"),
-        "apparent_temperature":      ("🤔 Feels like",             "°C"),
-        "relative_humidity_2m":      ("💧 Humidity",               "%"),
-        "precipitation_probability": ("🌧️ Rain probability",       "%"),
-        "precipitation_sum_today":   ("🌧️ Today's rain total",     " mm"),
-        "wind_speed_10m":            ("💨 Wind speed",             " km/h"),
-        "wind_gusts_10m":            ("💨 Wind gusts",             " km/h"),
-        "uv_index":                  ("☀️ UV index",               ""),
-        "visibility":                ("👁️ Visibility",            " m"),
-    }
-    d = facts.to_facts_dict()
-    for field, (label, unit) in field_labels.items():
-        val = d.get(field)
-        if val is not None:
-            lines.append(f"  • {label}: **{val}{unit}**")
-
-    return "\n".join(lines) if lines else "  • (weather data unavailable)"
-
-
-# ---------------------------------------------------------------------------
-# Node
-# ---------------------------------------------------------------------------
 
 def no_match_response_node(state: BotState) -> Dict:
     """
-    LangGraph node: produce a no-policy-fired response.
-
-    Distinguishes between:
-    - Activity not covered by any SOP (no guidance available)
-    - Activity covered but conditions are fine (positive "all clear")
+    Produces an advisory response when no policy conditions are exceeded.
+    Distinguishes between unsupported activities vs safe weather conditions.
     """
-    conversation_history = state.get("conversation_history", [])
-    location = state.get("resolved_location", "your area")
+    intent_categories = state.get("intent_categories", [])
     facts = state.get("weather_facts")
-    intent = state.get("intent")
+    location = state.get("resolved_location", "your location")
+    conversation_history = state.get("conversation_history", [])
+    activity = state.get("activity")
+    raw_query = state.get("user_message", "")
 
-    logger.info("no_match_response_node: no SOPs matched for location=%s", location)
+    activity_is_covered = _any_sop_covers_categories(intent_categories)
 
-    # --- Activity context ---
-    activity_hint = ""
-    activity_label = ""
-    if intent:
-        mode = intent.mode
-        cats = intent.activity_categories or []
-        if mode:
-            activity_hint = f" for **{mode}**"
-            activity_label = mode
-        elif cats and cats != ["general"]:
-            activity_hint = f" for **{', '.join(cats)}**"
-            activity_label = cats[0]
-
-    # --- Check if any SOP covers this activity at all ---
-    intent_categories = intent.activity_categories if intent else []
-    # Filter out 'general' — it's a fallback category, not a real activity signal
-    real_cats = [c for c in intent_categories if c != "general"]
-    has_coverage = _any_sop_covers_categories(real_cats) if real_cats else True
-
-    conditions_block = _build_conditions_block(facts)
-
-    if not has_coverage and real_cats:
-        # --- SCENARIO A: No SOP coverage for this activity ---
-        answer_lines = [
-            f"🌤️ **Weather Advisory — {location}**",
-            "",
-            "**No Safety Policy Available**",
-            "",
-            f"I checked the live weather data{activity_hint}, but our policy library "
-            f"doesn't have a safety SOP for this specific activity. "
-            f"I can't provide a policy-based recommendation without an applicable SOP.",
-            "",
-            "**Current Conditions**",
-            conditions_block,
-            "",
-            "---",
-            "_To get a policy-based advisory, ask about: cycling, walking, running, "
-            "outdoor recreation, travel, or activities for children or elderly._",
-        ]
+    if not activity_is_covered:
+        act_display = f"**{activity}**" if activity else "this activity"
+        answer = (
+            f"ℹ️ **No Safety Policy for this Activity**\n\n"
+            f"I don't currently have a safety Operating Procedure (SOP) defined for {act_display}.\n\n"
+            f"To prevent hallucinated advice, recommendations are only provided for activities "
+            f"with verified safety policies.\n\n"
+            f"{_SUPPORTED_ACTIVITIES_LIST}\n"
+            f"Please ask about one of the supported activities above for **{location}**."
+        )
     else:
-        # --- SCENARIO B: Conditions are within safe ranges ---
-        answer_lines = [
-            f"✅ **Weather Advisory — {location}**",
-            "",
-            "**Recommendation**",
-            f"No safety concerns found{activity_hint}. "
-            f"Current conditions in **{location}** are within normal safe ranges — "
-            f"none of our weather safety thresholds were exceeded.",
-            "",
-            "**Current Conditions**",
-            conditions_block,
-            "",
-            "**Severity**",
-            "✅ NO SAFETY CONCERNS",
-            "",
-            "---",
-            "_This assessment reflects automated safety policies only. "
-            "Always use personal judgment and check local conditions before heading out._",
-        ]
+        act_phrase = f"for **{activity}** " if activity else ""
+        weather_summary = _build_weather_inline(facts)
+        answer = (
+            f"✅ **No Safety Concerns Identified — {location}**\n\n"
+            f"Current weather conditions in **{location}** {act_phrase}fall within safe operational thresholds.\n\n"
+            f"**Current Conditions**\n"
+            f"{weather_summary}\n\n"
+            f"**Status**\n"
+            f"• All monitored weather variables are within normal parameters.\n"
+            f"• No adverse weather warnings or safety restrictions currently triggered.\n\n"
+            f"_Tip: Weather conditions can change rapidly. Check back if conditions deteriorate._"
+        )
 
-        # Extra advisory if rain chance is high but no SOP fired
-        if facts and facts.precipitation_probability is not None and facts.precipitation_probability >= 60:
-            answer_lines.append(
-                f"\n⚠️ _Note: Rain probability is **{facts.precipitation_probability}%** — "
-                "consider carrying rain gear even though no formal safety policy was triggered._"
-            )
-
-    answer = "\n".join(answer_lines)
+    interpreted_as = state.get("interpreted_as")
+    if interpreted_as:
+        answer = f"_💬 Interpreted as: \"{interpreted_as}\"_\n\n" + answer
 
     updated_history = list(conversation_history) + [
         {"role": "assistant", "content": answer}

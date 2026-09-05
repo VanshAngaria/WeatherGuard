@@ -1,9 +1,3 @@
-"""
-Gemini LLM client setup.
-Uses the new google-genai SDK (google.genai).
-Reads GEMINI_API_KEY from environment — never hardcoded.
-"""
-
 from __future__ import annotations
 
 import os
@@ -12,7 +6,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from google import genai
 
-# Ensure .env is always loaded
+# Load local .env if available
 _root = Path(__file__).resolve().parent.parent.parent
 load_dotenv(_root / ".env")
 load_dotenv()
@@ -21,22 +15,35 @@ _client: genai.Client | None = None
 
 
 def get_llm_client() -> genai.Client:
-    """
-    Return a singleton google.genai Client.
-    Reads GEMINI_API_KEY from the environment.
-    """
+    """Return a singleton google.genai Client using the configured API key."""
     global _client
-    if _client is None:
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key:
-            raise EnvironmentError(
-                "GEMINI_API_KEY environment variable is not set. "
-                "Copy .env.example to .env and add your key from https://aistudio.google.com/apikey"
-            )
+    api_key = os.environ.get("GEMINI_API_KEY")
+
+    # If not in env, check Streamlit secrets or session state for cloud deployment
+    if not api_key:
+        try:
+            import streamlit as st
+            if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
+                api_key = st.secrets["GEMINI_API_KEY"]
+                os.environ["GEMINI_API_KEY"] = api_key
+            elif hasattr(st, "session_state") and st.session_state.get("gemini_api_key"):
+                api_key = st.session_state.get("gemini_api_key")
+                os.environ["GEMINI_API_KEY"] = api_key
+        except Exception:
+            pass
+
+    if not api_key:
+        raise EnvironmentError(
+            "GEMINI_API_KEY environment variable is not set. "
+            "Please provide your key via .env, Streamlit Secrets, or the sidebar."
+        )
+
+    if _client is None or getattr(_client, "_api_key_used", None) != api_key:
         _client = genai.Client(api_key=api_key)
+        _client._api_key_used = api_key
     return _client
 
 
 def get_model_name() -> str:
-    """Return the configured Gemini model name (default: gemini-3.5-flash)."""
+    """Return configured Gemini model name (default: gemini-3.5-flash)."""
     return os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")

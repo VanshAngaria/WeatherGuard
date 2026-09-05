@@ -1,26 +1,15 @@
-"""
-Policy data models.
-Defines Pydantic models for SOPs, match results, and related structures.
-The LLM never touches these — they are used exclusively by the deterministic engine.
-"""
-
 from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional, Union
-
 from pydantic import BaseModel, Field
 
 
-# ---------------------------------------------------------------------------
-# Condition AST
-# ---------------------------------------------------------------------------
-
 class LeafCondition(BaseModel):
-    """A single boolean test on one weather field."""
+    """A single boolean comparison on a specific weather field."""
     type: Literal["leaf"]
     field: str
     op: Literal["gt", "gte", "lt", "lte", "eq", "ne", "in", "contains", "between"]
-    value: Any  # number, string, list
+    value: Any
 
 
 class AllCondition(BaseModel):
@@ -42,24 +31,17 @@ class NotCondition(BaseModel):
 
 
 class ScoreGteCondition(BaseModel):
-    """
-    Score-based condition: fires when the weighted score >= threshold.
-    Actual scoring is driven by the SOP's score_config.
-    """
+    """Fires when the cumulative score meets or exceeds a threshold."""
     type: Literal["score_gte"]
     threshold: float
 
 
 class ScoreLtCondition(BaseModel):
-    """
-    Score-based condition: fires when the weighted score < threshold.
-    Actual scoring is driven by the SOP's score_config.
-    """
+    """Fires when the cumulative score is strictly below a threshold."""
     type: Literal["score_lt"]
     threshold: float
 
 
-# Union of all possible condition types (distinct name to avoid shadowing)
 ConditionNode = Union[
     LeafCondition,
     AllCondition,
@@ -69,18 +51,13 @@ ConditionNode = Union[
     ScoreLtCondition,
 ]
 
-# Rebuild models to resolve forward references
 AllCondition.model_rebuild()
 AnyCondition.model_rebuild()
 NotCondition.model_rebuild()
 
 
-# ---------------------------------------------------------------------------
-# Score config (used by SOP-008 / SOP-008B)
-# ---------------------------------------------------------------------------
-
 class ScoreCriterion(BaseModel):
-    """One scoring rule within a score_config block."""
+    """Scoring rule with a weight."""
     field: str
     op: Literal["gt", "gte", "lt", "lte", "eq", "ne", "in", "contains", "between"]
     value: Any
@@ -88,16 +65,12 @@ class ScoreCriterion(BaseModel):
 
 
 class ScoreConfig(BaseModel):
-    """Full scoring configuration attached to a score-type SOP."""
+    """Configuration for score-based SOP evaluation."""
     criteria: List[ScoreCriterion]
 
 
-# ---------------------------------------------------------------------------
-# SOP
-# ---------------------------------------------------------------------------
-
 class SOP(BaseModel):
-    """A single Safety Operating Procedure loaded from sops.yaml."""
+    """Safety Operating Procedure definition loaded from sops.yaml."""
     id: str
     title: str
     category: str
@@ -105,36 +78,28 @@ class SOP(BaseModel):
     match_type: Literal["rule", "score"]
     overrides: bool = False
     priority: int = 99
-    applies_to_categories: List[str] = Field(default_factory=lambda: [])
+    applies_to_categories: List[str] = Field(default_factory=list)
     required_fields: List[str] = Field(default_factory=list)
     score_config: Optional[ScoreConfig] = None
     condition: ConditionNode
     advice_template: str
 
 
-# ---------------------------------------------------------------------------
-# Match result
-# ---------------------------------------------------------------------------
-
 class MatchResult(BaseModel):
-    """Produced by the policy matcher for every SOP that fires."""
+    """Result of an individual matching SOP."""
     sop_id: str
     sop_title: str
     category: str
     severity: Literal["low", "moderate", "high", "critical"]
     overrides: bool
     priority: int
-    matched_conditions: Dict[str, Any]  # field_name → actual value
+    matched_conditions: Dict[str, Any]
     advice_template: str
-    score: Optional[float] = None  # populated for score-type SOPs
+    score: Optional[float] = None
 
-
-# ---------------------------------------------------------------------------
-# Policy resolution result
-# ---------------------------------------------------------------------------
 
 class PolicyDecision(BaseModel):
-    """Output of the conflict-resolution step."""
+    """Outcome of conflict resolution selecting primary and secondary SOPs."""
     primary: MatchResult
     secondary_matches: List[MatchResult] = Field(default_factory=list)
     resolution_reason: str

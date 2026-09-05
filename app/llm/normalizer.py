@@ -143,13 +143,12 @@ def normalize_input(message: str) -> Tuple[str, Optional[str]]:
     current = original
     any_changed = False
 
-    # Step 1: Fix obvious activity spelling typos
+    # Fix obvious activity typos
     current, changed1 = _correct_activity_typos(current)
     if changed1:
         any_changed = True
 
-    # Step 2: Expand informal structure only on short messages (< 10 words)
-    # to avoid mangling well-formed sentences
+    # Expand short informal phrases (< 10 words) for cleaner intent classification
     if len(current.split()) <= 10:
         current, changed2 = _expand_informal(current)
         if changed2:

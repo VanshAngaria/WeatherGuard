@@ -1,16 +1,7 @@
 """
-Node: parse_intent
-Classifies user message into structured intent using the LLM.
-Merges intent with session memory to support follow-up queries.
-
-Steps:
-  1. Normalize input (typo correction, informal expansion)
-  2. Call LLM intent classifier
-  3. Detect scope: relevant / irrelevant / ambiguous
-  4. Resolve follow-up context from session memory
-  5. Handle location-only messages
-  6. Detect ambiguous context needing clarification
-  7. Populate explicit structured state fields
+Intent parsing node.
+Extracts structured intent from user input, resolves session continuity,
+and handles out-of-scope or ambiguous requests.
 """
 
 from __future__ import annotations
@@ -24,12 +15,7 @@ from app.llm.normalizer import normalize_input
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Irrelevant query detection heuristics
-# These supplement the LLM — if the LLM returns empty categories AND
-# no location AND no follow-up flag, we treat it as out-of-scope.
-# ---------------------------------------------------------------------------
-
+# Heuristic filter for queries completely outside the weather-safety domain
 _IRRELEVANT_KEYWORDS = {
     "python", "javascript", "code", "program", "algorithm", "database",
     "capital of", "what is the", "explain", "define", "history of",
@@ -40,32 +26,21 @@ _IRRELEVANT_KEYWORDS = {
 
 
 def _is_likely_irrelevant(message: str) -> bool:
-    """
-    Heuristic check for obviously irrelevant messages.
-    Returns True only for high-confidence irrelevant queries.
-    """
+    """Quick check for clearly off-topic queries."""
     lower = message.lower()
     return any(kw in lower for kw in _IRRELEVANT_KEYWORDS)
 
 
 def parse_intent_node(state: BotState) -> Dict:
     """
-    LangGraph node: parse user intent with full context resolution.
-
-    Returns updated state fields including:
-    - intent, activity, requested_time, needs_clarification
-    - scope_type, interpreted_as
-    - location_text, conversation_history
-    - error / error_type on failure
+    Parse user message into structured intent and resolve against session state.
     """
     user_message = state.get("user_message", "")
     conversation_history = state.get("conversation_history", [])
 
     logger.info("parse_intent_node: message='%s'", user_message)
 
-    # -------------------------------------------------------------------------
-    # STEP 1: Quick irrelevance heuristic (no LLM call needed)
-    # -------------------------------------------------------------------------
+    # Fast path for obvious out-of-domain queries
     if _is_likely_irrelevant(user_message) and not state.get("intent"):
         logger.info("Heuristic: likely irrelevant query — routing to scope_response.")
         updated_history = list(conversation_history) + [
@@ -79,16 +54,12 @@ def parse_intent_node(state: BotState) -> Dict:
             "error_type": None,
         }
 
-    # -------------------------------------------------------------------------
-    # STEP 2: Input normalization (typo correction + informal expansion)
-    # -------------------------------------------------------------------------
+    # Normalize typos and informal phrasing before calling the LLM
     normalized_message, interpreted_as = normalize_input(user_message)
     if interpreted_as:
         logger.info("Input normalized: '%s' → '%s'", user_message, normalized_message)
 
-    # -------------------------------------------------------------------------
-    # STEP 3: LLM intent classification
-    # -------------------------------------------------------------------------
+    # Classify intent with Gemini
     try:
         intent = parse_intent(
             user_message=normalized_message,
@@ -102,19 +73,16 @@ def parse_intent_node(state: BotState) -> Dict:
             "interpreted_as": interpreted_as,
         }
 
-    # -------------------------------------------------------------------------
-    # STEP 4: Scope detection
-    # If LLM returned empty categories + no location + no follow-up → irrelevant
-    # -------------------------------------------------------------------------
+    # Handle empty/unrecognized intents as out of scope
     scope_type = "relevant"
     if (
         not intent.activity_categories
         and not intent.location
         and not intent.is_follow_up
-        and not state.get("intent")  # no previous context to fall back on
+        and not state.get("intent")
     ):
         scope_type = "irrelevant"
-        logger.info("LLM returned empty intent with no context — treating as irrelevant.")
+        logger.info("LLM returned empty intent with no prior context — treating as out-of-scope.")
         updated_history = list(conversation_history) + [
             {"role": "user", "content": user_message}
         ]
@@ -126,15 +94,11 @@ def parse_intent_node(state: BotState) -> Dict:
             "error_type": None,
         }
 
-    # -------------------------------------------------------------------------
-    # STEP 5: Follow-up resolution
-    # If is_follow_up=True, merge missing fields from session state.
-    # -------------------------------------------------------------------------
+    # Retain location and activity across conversation turns for follow-ups
     prev_intent = state.get("intent")
 
     if intent.is_follow_up:
-        logger.info("Follow-up detected — merging with session memory.")
-
+        logger.info("Follow-up query detected — merging previous session memory.")
         if not intent.location:
             intent.location = state.get("location_text") or state.get("resolved_location")
 
@@ -145,16 +109,10 @@ def parse_intent_node(state: BotState) -> Dict:
             if not intent.group:
                 intent.group = prev_intent.group
 
-    # -------------------------------------------------------------------------
-    # STEP 6: Location-only / no-activity message
-    # If user sent just a city name with no new activity, inherit previous activity.
-    # -------------------------------------------------------------------------
+    # When user provides only a location, retain the prior activity
     if not intent.activity_categories and not intent.is_follow_up:
         if prev_intent and prev_intent.activity_categories:
-            logger.info(
-                "No activity in current message — inheriting from session: %s",
-                prev_intent.activity_categories,
-            )
+            logger.info("Carrying over prior activity from session: %s", prev_intent.activity_categories)
             intent.activity_categories = prev_intent.activity_categories
             if not intent.mode:
                 intent.mode = prev_intent.mode
@@ -162,12 +120,8 @@ def parse_intent_node(state: BotState) -> Dict:
                 intent.group = prev_intent.group
         else:
             intent.activity_categories = ["general"]
-            logger.info("No activity context; defaulting to 'general' category.")
 
-    # -------------------------------------------------------------------------
-    # STEP 7: Ambiguity detection
-    # If follow-up with time-only and no resolvable location → ask clarification.
-    # -------------------------------------------------------------------------
+    # Ask for clarification if a follow-up specifies time without a known location
     needs_clarification = False
     if intent.is_follow_up and intent.time_context not in {"current", "today", None}:
         resolved_location = (
@@ -176,12 +130,10 @@ def parse_intent_node(state: BotState) -> Dict:
             or state.get("resolved_location")
         )
         if not resolved_location:
-            logger.info("Ambiguous follow-up — no resolvable location; requesting clarification.")
+            logger.info("Ambiguous follow-up without location — requesting clarification.")
             needs_clarification = True
 
-    # -------------------------------------------------------------------------
-    # STEP 8: Populate explicit structured state fields
-    # -------------------------------------------------------------------------
+    # Assemble structured state fields
     activity = (
         intent.raw_activity
         or intent.mode

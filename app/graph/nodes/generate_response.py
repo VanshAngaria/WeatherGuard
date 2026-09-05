@@ -1,33 +1,3 @@
-"""
-Node: generate_response
-Uses the LLM to compose a natural, conversational response FROM the already-determined
-policy decision. The LLM receives structured verified inputs and may only compose language.
-
-The LLM MUST NOT:
-- Select a different SOP
-- Modify severity
-- Invent thresholds or weather values
-- Override the policy engine decision
-
-The final response always uses the standardized format:
-🌦️ Weather Advisory — LOCATION
-
-Recommendation
-<LLM prose based on SOP advice_template>
-
-Current Conditions
-• field: actual_value  (only fields available in WeatherFacts)
-
-Severity
-<from selected_sop>
-
-Applicable SOP
-<SOP-ID> — <SOP title>
-
-Why this policy applies
-<LLM prose connecting conditions to SOP>
-"""
-
 from __future__ import annotations
 
 import json
@@ -42,7 +12,6 @@ from app.llm.client import get_llm_client, get_model_name
 
 logger = logging.getLogger(__name__)
 
-# Severity → display string
 _SEVERITY_LABEL = {
     "critical": "🚨 CRITICAL",
     "high": "⚠️ HIGH",
@@ -50,7 +19,6 @@ _SEVERITY_LABEL = {
     "low": "✅ LOW",
 }
 
-# Severity → leading emoji for header
 _SEVERITY_EMOJI = {
     "critical": "🚨",
     "high": "⚠️",
@@ -60,7 +28,7 @@ _SEVERITY_EMOJI = {
 
 
 def _build_conditions_block(facts) -> str:
-    """Build the 'Current Conditions' bullet list from only non-None WeatherFacts."""
+    """Build formatted bullet points from non-empty weather facts."""
     lines = []
     d = facts.to_facts_dict()
 
@@ -96,7 +64,7 @@ def _build_structured_response(
     conditions_block: str,
     secondary_ids: Optional[str] = None,
 ) -> str:
-    """Assemble the standardized response format."""
+    """Format the standardized user-facing advisory report."""
     emoji = _SEVERITY_EMOJI.get(severity, "🌦️")
     severity_label = _SEVERITY_LABEL.get(severity, severity.upper())
 
@@ -155,10 +123,8 @@ Keep each paragraph to 2-3 sentences. Be direct. Lead with the safety verdict fo
 
 def generate_response_node(state: BotState) -> Dict:
     """
-    LangGraph node: compose final natural-language response using LLM.
-
-    The LLM receives structured verified inputs and may only compose language.
-    Policy decision, severity, and SOP selection are already fixed in state.
+    Synthesizes conversational narrative grounded in the policy decision and weather facts.
+    Falls back gracefully to template composition if LLM response is unavailable.
     """
     decision = state.get("policy_decision")
     facts = state.get("weather_facts")
@@ -170,9 +136,7 @@ def generate_response_node(state: BotState) -> Dict:
     if decision is None or facts is None:
         logger.error("generate_response_node: policy_decision or weather_facts missing.")
         return {
-            "final_answer": (
-                "I encountered an internal error composing the response. Please try again."
-            )
+            "final_answer": "I encountered an internal error composing the response. Please try again."
         }
 
     primary = decision.primary
@@ -182,7 +146,6 @@ def generate_response_node(state: BotState) -> Dict:
         if decision.secondary_matches else None
     )
 
-    # Build structured inputs for the LLM (only verified facts)
     facts_dict = {k: v for k, v in facts.to_facts_dict().items() if v is not None}
     llm_inputs = {
         "location": location,
@@ -197,7 +160,6 @@ def generate_response_node(state: BotState) -> Dict:
     }
 
     prompt = _PROMPT_TEMPLATE.format(inputs_json=json.dumps(llm_inputs, indent=2))
-
     recommendation = ""
     why = ""
 
@@ -220,10 +182,8 @@ def generate_response_node(state: BotState) -> Dict:
         parsed = json.loads(raw)
         recommendation = parsed.get("recommendation", "").strip()
         why = parsed.get("why", "").strip()
-        logger.info("generate_response_node: LLM narrative generated for %s", primary.sop_id)
     except Exception as exc:
-        logger.warning("LLM narrative generation failed (%s); falling back to template.", exc)
-        # Graceful fallback: use template text directly
+        logger.warning("LLM response generation failed (%s); using deterministic template.", exc)
         from app.graph.nodes.compose_answer import _format_template
         facts_flat = facts.to_facts_dict()
         recommendation = _format_template(primary.advice_template.strip(), facts_flat)
@@ -240,7 +200,6 @@ def generate_response_node(state: BotState) -> Dict:
         secondary_ids=secondary_ids,
     )
 
-    # Prepend "Interpreted as" indicator if input was normalized
     interpreted_as = state.get("interpreted_as")
     if interpreted_as:
         prefix = f"_💬 Interpreted as: \"{interpreted_as}\"_\n\n"
@@ -249,8 +208,6 @@ def generate_response_node(state: BotState) -> Dict:
     updated_history = list(conversation_history) + [
         {"role": "assistant", "content": final_answer}
     ]
-
-    logger.info("generate_response_node: final answer composed for %s", primary.sop_id)
 
     return {
         "final_answer": final_answer,

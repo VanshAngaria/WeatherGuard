@@ -1,9 +1,3 @@
-"""
-SOP YAML loader.
-Reads policies/sops.yaml and returns validated List[SOP] instances.
-No eval/exec is used anywhere.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -17,23 +11,11 @@ from app.policy.models import SOP
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_POLICY_PATH = Path(__file__).parent.parent.parent / "policies" / "sops.yaml"
+_DEFAULT_POLICY_PATH = Path(__file__).resolve().parent.parent.parent / "policies" / "sops.yaml"
 
 
 def load_sops(policy_path: Path = _DEFAULT_POLICY_PATH) -> List[SOP]:
-    """
-    Load and validate all SOPs from the YAML file.
-
-    Args:
-        policy_path: Absolute path to the sops.yaml file.
-
-    Returns:
-        List of validated SOP instances.
-
-    Raises:
-        FileNotFoundError: If the policy file does not exist.
-        ValueError: If the YAML is malformed or a SOP fails validation.
-    """
+    """Load and validate all SOP definitions from YAML."""
     if not policy_path.exists():
         raise FileNotFoundError(f"Policy file not found: {policy_path}")
 
@@ -48,7 +30,6 @@ def load_sops(policy_path: Path = _DEFAULT_POLICY_PATH) -> List[SOP]:
         try:
             sop = SOP.model_validate(entry)
             sops.append(sop)
-            logger.debug("Loaded SOP: %s — %s", sop.id, sop.title)
         except Exception as exc:
             raise ValueError(f"Invalid SOP entry {entry.get('id', '?')}: {exc}") from exc
 
@@ -58,19 +39,12 @@ def load_sops(policy_path: Path = _DEFAULT_POLICY_PATH) -> List[SOP]:
 
 @lru_cache(maxsize=1)
 def get_sops() -> List[SOP]:
-    """
-    Return the cached SOP list loaded from the default policy file.
-    Cache is invalidated on interpreter restart (in-process only).
-    """
+    """Return cached SOP list."""
     return load_sops()
 
 
 def get_all_required_fields() -> List[str]:
-    """
-    Return the union of all required_fields across every loaded SOP.
-    Used by the weather fetcher to dynamically build its API request.
-    Adding a new SOP with new required_fields automatically propagates here.
-    """
+    """Return union of all required_fields across all active SOPs."""
     sops = get_sops()
     fields: set[str] = set()
     for sop in sops:
