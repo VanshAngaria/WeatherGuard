@@ -210,7 +210,8 @@ def generate_response_node(state: BotState) -> Dict:
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 temperature=0.2,
-                max_output_tokens=600,
+                max_output_tokens=2048,
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
             ),
         )
         raw = response.text.strip()

@@ -7,8 +7,15 @@ Reads GEMINI_API_KEY from environment — never hardcoded.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
+from dotenv import load_dotenv
 from google import genai
+
+# Ensure .env is always loaded
+_root = Path(__file__).resolve().parent.parent.parent
+load_dotenv(_root / ".env")
+load_dotenv()
 
 _client: genai.Client | None = None
 
@@ -31,5 +38,5 @@ def get_llm_client() -> genai.Client:
 
 
 def get_model_name() -> str:
-    """Return the configured Gemini model name."""
-    return os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
+    """Return the configured Gemini model name (default: gemini-3.5-flash)."""
+    return os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")

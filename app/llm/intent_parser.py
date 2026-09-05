@@ -171,20 +171,47 @@ def parse_intent(
 
     full_prompt = f"{_SYSTEM_PROMPT}{history_text}\nUser message:\n{user_message}"
 
-    try:
-        response = client.models.generate_content(
-            model=model,
-            contents=full_prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=0,
-                max_output_tokens=400,
-            ),
-        )
-        raw_json = response.text
-        logger.debug("Gemini raw response: %s", raw_json)
-    except Exception as exc:
-        raise ValueError(f"Gemini API call failed: {exc}") from exc
+    raw_json = None
+    candidate_models = [model]
+    if "gemini-3.5-flash" not in candidate_models:
+        candidate_models.append("gemini-3.5-flash")
+    if "gemini-3.5-flash-lite" not in candidate_models:
+        candidate_models.append("gemini-3.5-flash-lite")
+
+    last_exc = None
+    for mod in candidate_models:
+        use_thinking_options = [True, False] if "lite" not in mod else [False]
+        for use_thinking in use_thinking_options:
+            try:
+                cfg_kwargs = {
+                    "response_mime_type": "application/json",
+                    "temperature": 0,
+                    "max_output_tokens": 2048,
+                }
+                if use_thinking:
+                    cfg_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+                response = client.models.generate_content(
+                    model=mod,
+                    contents=full_prompt,
+                    config=types.GenerateContentConfig(**cfg_kwargs),
+                )
+                raw_json = response.text
+                if raw_json and raw_json.strip() and raw_json.strip() != "{":
+                    logger.debug("Gemini (%s, thinking=%s) response: %s", mod, use_thinking, raw_json)
+                    break
+            except Exception as exc:
+                logger.warning("Gemini model %s (thinking=%s) failed: %s", mod, use_thinking, exc)
+                last_exc = exc
+        if raw_json and raw_json.strip() and raw_json.strip() != "{":
+            break
+
+    if not raw_json or raw_json.strip() in ("", "{"):
+        # Graceful fallback: basic rule-based extraction so system does not crash on quota
+        logger.warning("All LLM attempts failed or truncated; attempting rule-based fallback.")
+        fallback = _heuristic_parse_intent(user_message)
+        if fallback:
+            return fallback
+        raise ValueError(f"Gemini API call failed across models: {last_exc}")
 
     # Strip accidental markdown fences
     raw_json = raw_json.strip()
@@ -196,6 +223,9 @@ def parse_intent(
         parsed_dict = json.loads(raw_json)
         intent = ParsedIntent.model_validate(parsed_dict)
     except Exception as exc:
+        fallback = _heuristic_parse_intent(user_message)
+        if fallback:
+            return fallback
         raise ValueError(f"Failed to parse Gemini JSON: {exc}\nRaw: {raw_json}") from exc
 
     logger.info(
@@ -204,3 +234,74 @@ def parse_intent(
         intent.location, intent.is_follow_up,
     )
     return intent
+
+
+def _heuristic_parse_intent(message: str) -> Optional[ParsedIntent]:
+    """Fallback intent extractor when LLM API is unavailable or exhausted."""
+    msg = message.lower()
+    cats = []
+    mode = None
+    if any(w in msg for w in ("cycl", "bike", "bicycl")):
+        cats.extend(["outdoor_exercise", "travel"])
+        mode = "cycling"
+    elif any(w in msg for w in ("run", "jog")):
+        cats.append("outdoor_exercise")
+        mode = "running"
+    elif any(w in msg for w in ("walk", "stroll")):
+        cats.append("outdoor_exercise")
+        mode = "walking"
+    elif any(w in msg for w in ("swim",)):
+        cats.append("water_activities")
+        mode = "swimming"
+    elif any(w in msg for w in ("boat", "kayak")):
+        cats.append("water_activities")
+        mode = "boating"
+    elif any(w in msg for w in ("drive", "car")):
+        cats.append("travel")
+        mode = "car"
+    elif any(w in msg for w in ("park", "picnic", "hike")):
+        cats.append("outdoor_recreation")
+        mode = "walking"
+
+    group = None
+    if any(w in msg for w in ("child", "kid", "toddler", "baby")):
+        group = "children"
+        cats.append("vulnerable_groups")
+    elif any(w in msg for w in ("elder", "senior", "grandparent", "old")):
+        group = "elderly"
+        cats.append("vulnerable_groups")
+
+    time_ctx = "current"
+    if "today" in msg:
+        time_ctx = "today"
+    elif "tomorrow" in msg:
+        time_ctx = "tomorrow"
+    elif "evening" in msg:
+        time_ctx = "evening"
+    elif "morning" in msg:
+        time_ctx = "morning"
+    elif "afternoon" in msg:
+        time_ctx = "afternoon"
+    elif "night" in msg:
+        time_ctx = "night"
+
+    # Simple location extraction heuristic (after "in" / "at")
+    import re
+    loc = None
+    loc_match = re.search(r'\b(?:in|at|around|for)\s+([A-Z][a-zA-Z\s]+?)(?:\s+(?:today|tomorrow|this|now|morning|evening)|\?|$)', message)
+    if loc_match:
+        loc = loc_match.group(1).strip()
+
+    if not cats and not loc:
+        return None
+
+    return ParsedIntent(
+        activity_categories=list(set(cats)) if cats else ["general"],
+        mode=mode,
+        group=group or "general_public",
+        location=loc,
+        time_context=time_ctx,
+        is_follow_up=False,
+        raw_activity=mode,
+    )
+
