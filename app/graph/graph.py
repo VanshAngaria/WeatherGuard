@@ -6,7 +6,9 @@ Graph flow:
   START
     ↓
   parse_intent
-    ├── needs_clarification ─────────────────→ clarification_response → END
+    ├── scope_type=irrelevant ─────────────────→ scope_response → END
+    ├── needs_clarification ───────────────────→ clarification_response → END
+    ├── error_type ────────────────────────────→ error_response → END
     ↓
   resolve_location ──── failure ──→ error_response → END
     ↓
@@ -15,20 +17,22 @@ Graph flow:
   extract_facts ─────── failure ──→ error_response → END
     ↓
   match_sops
-    ├── no match ──────────────────────────→ no_match_response → END
+    ├── no match ──────────────────────────────→ no_match_response → END
     ↓
   resolve_policy
     ↓
-  generate_response    ← LLM composes language from structured policy decision
+  generate_response
     ↓
   END
 
-Branching summary:
-  parse_intent    → clarification_response (ambiguous) | resolve_location (normal)
-  resolve_location → error_response (failure) | fetch_weather (success)
-  fetch_weather    → error_response (failure) | extract_facts (success)
-  extract_facts    → error_response (failure) | match_sops (success)
-  match_sops       → no_match_response (empty) | resolve_policy (matches found)
+Branching summary (6 conditional edges):
+  parse_intent     → scope_response | clarification_response | error_response | resolve_location
+  resolve_location → error_response | fetch_weather
+  fetch_weather    → error_response | extract_facts
+  extract_facts    → error_response | match_sops
+  match_sops       → no_match_response | resolve_policy
+
+Conflict resolution: override > severity > priority (deterministic, no LLM involvement).
 """
 
 from __future__ import annotations
@@ -49,6 +53,7 @@ from app.graph.nodes.no_match_response import no_match_response_node
 from app.graph.nodes.parse_intent import parse_intent_node
 from app.graph.nodes.resolve_location import resolve_location_node
 from app.graph.nodes.resolve_policy import resolve_policy_node
+from app.graph.nodes.scope_response import scope_response_node
 from app.graph.state import BotState
 
 logger = logging.getLogger(__name__)
@@ -60,11 +65,14 @@ logger = logging.getLogger(__name__)
 
 def route_after_intent(
     state: BotState,
-) -> Literal["clarification_response", "resolve_location", "error_response"]:
-    """Route to clarification if ambiguous; error if LLM failed; normal otherwise."""
+) -> Literal["scope_response", "clarification_response", "resolve_location", "error_response"]:
+    """Route after intent parsing."""
     if state.get("error_type"):
         logger.debug("Routing: intent failure → error_response")
         return "error_response"
+    if state.get("scope_type") == "irrelevant":
+        logger.debug("Routing: irrelevant query → scope_response")
+        return "scope_response"
     if state.get("needs_clarification"):
         logger.debug("Routing: ambiguous intent → clarification_response")
         return "clarification_response"
@@ -120,11 +128,17 @@ def build_graph() -> StateGraph:
     """
     Construct and compile the LangGraph StateGraph.
     Uses MemorySaver for in-memory checkpointing (session memory).
+
+    SOP conflict resolution strategy (deterministic, no LLM):
+      1. Override SOPs always take priority over non-override SOPs.
+      2. Among equal override status: highest severity wins.
+      3. Among equal severity: lowest priority number wins.
     """
     builder = StateGraph(BotState)
 
     # --- Add nodes ---
     builder.add_node("parse_intent", parse_intent_node)
+    builder.add_node("scope_response", scope_response_node)
     builder.add_node("clarification_response", clarification_response_node)
     builder.add_node("resolve_location", resolve_location_node)
     builder.add_node("fetch_weather", fetch_weather_node)
@@ -139,15 +153,17 @@ def build_graph() -> StateGraph:
     builder.add_edge(START, "parse_intent")
     builder.add_edge("resolve_policy", "generate_response")
     builder.add_edge("generate_response", END)
+    builder.add_edge("scope_response", END)
     builder.add_edge("clarification_response", END)
     builder.add_edge("error_response", END)
     builder.add_edge("no_match_response", END)
 
-    # --- Conditional edges (real branching) ---
+    # --- Conditional edges ---
     builder.add_conditional_edges(
         "parse_intent",
         route_after_intent,
         {
+            "scope_response": "scope_response",
             "clarification_response": "clarification_response",
             "resolve_location": "resolve_location",
             "error_response": "error_response",
@@ -177,7 +193,7 @@ def build_graph() -> StateGraph:
     # Compile with in-memory checkpointer for session memory
     memory = MemorySaver()
     graph = builder.compile(checkpointer=memory)
-    logger.info("LangGraph graph compiled successfully.")
+    logger.info("LangGraph graph compiled: 11 nodes, 6 conditional edges.")
     return graph
 
 

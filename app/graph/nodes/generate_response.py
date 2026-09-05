@@ -239,6 +239,12 @@ def generate_response_node(state: BotState) -> Dict:
         secondary_ids=secondary_ids,
     )
 
+    # Prepend "Interpreted as" indicator if input was normalized
+    interpreted_as = state.get("interpreted_as")
+    if interpreted_as:
+        prefix = f"_💬 Interpreted as: \"{interpreted_as}\"_\n\n"
+        final_answer = prefix + final_answer
+
     updated_history = list(conversation_history) + [
         {"role": "assistant", "content": final_answer}
     ]

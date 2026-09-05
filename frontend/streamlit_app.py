@@ -1,7 +1,10 @@
 """
 Streamlit Frontend — Weather Advisory Support Bot
-Minimal chat UI with conversational history and session/thread ID.
+Professional UI with example prompts, pipeline explainer,
+scope section, and live session context display.
 """
+
+from __future__ import annotations
 
 import os
 import sys
@@ -29,15 +32,228 @@ from app.graph.graph import run_graph
 
 st.set_page_config(
     page_title="Weather Advisory Support Bot",
-    page_icon="⛅",
-    layout="centered",
+    page_icon="🌦️",
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-st.title("⛅ Weather Advisory Support Bot")
-st.caption(
-    "Ask me weather-safety questions like: *'Is it safe to cycle in Mumbai today?'* "
-    "or *'Should I take my child to the park in Delhi?'*"
-)
+# ---------------------------------------------------------------------------
+# Custom CSS — professional, clean, decision-support feel
+# ---------------------------------------------------------------------------
+
+st.markdown("""
+<style>
+/* Import professional font */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif;
+}
+
+/* Main background */
+.stApp {
+    background-color: #0f1117;
+}
+
+/* Hide default Streamlit header padding */
+.block-container {
+    padding-top: 1.5rem;
+    padding-bottom: 2rem;
+    max-width: 860px;
+}
+
+/* Header card */
+.header-card {
+    background: linear-gradient(135deg, #1a2035 0%, #1e2d4a 50%, #152038 100%);
+    border: 1px solid #2a3f6f;
+    border-radius: 12px;
+    padding: 1.6rem 2rem;
+    margin-bottom: 1.4rem;
+}
+
+.header-title {
+    font-size: 1.7rem;
+    font-weight: 700;
+    color: #e8eef8;
+    margin: 0 0 0.3rem 0;
+    letter-spacing: -0.3px;
+}
+
+.header-subtitle {
+    font-size: 0.95rem;
+    color: #7b9ec7;
+    margin: 0 0 0.6rem 0;
+    font-weight: 400;
+}
+
+.header-desc {
+    font-size: 0.85rem;
+    color: #5c7da8;
+    margin: 0;
+}
+
+/* Pipeline bar */
+.pipeline-bar {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    background: #141824;
+    border: 1px solid #2a3550;
+    border-radius: 8px;
+    padding: 0.7rem 1.2rem;
+    margin-bottom: 1.2rem;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+}
+
+.pipeline-step {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #8faecf;
+    white-space: nowrap;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+}
+
+.pipeline-arrow {
+    color: #2d4a7a;
+    margin: 0 0.55rem;
+    font-size: 0.8rem;
+    flex-shrink: 0;
+}
+
+/* Example prompts section */
+.examples-header {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #5c7da8;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 0.6rem;
+}
+
+/* Example button styling */
+.stButton > button {
+    background: #141824 !important;
+    border: 1px solid #2a3550 !important;
+    color: #a8c4e0 !important;
+    border-radius: 8px !important;
+    padding: 0.45rem 0.7rem !important;
+    font-size: 0.8rem !important;
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 400 !important;
+    text-align: left !important;
+    transition: all 0.15s ease !important;
+    width: 100% !important;
+    line-height: 1.4 !important;
+}
+
+.stButton > button:hover {
+    background: #1e2d4a !important;
+    border-color: #3d5a8a !important;
+    color: #cce0f5 !important;
+}
+
+/* Sidebar */
+section[data-testid="stSidebar"] {
+    background: #0d1120 !important;
+    border-right: 1px solid #1e2d45 !important;
+}
+
+section[data-testid="stSidebar"] .stMarkdown {
+    color: #7b9ec7;
+}
+
+/* Session badge */
+.session-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #0d1f0d;
+    border: 1px solid #1a3d1a;
+    border-radius: 20px;
+    padding: 3px 10px;
+    font-size: 0.75rem;
+    color: #4caf50;
+    font-weight: 600;
+    margin-bottom: 0.8rem;
+}
+
+.session-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #4caf50;
+    display: inline-block;
+}
+
+/* Context info box */
+.context-box {
+    background: #111827;
+    border: 1px solid #1e2d45;
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 0.6rem 0;
+}
+
+.context-row {
+    font-size: 0.78rem;
+    color: #7b9ec7;
+    padding: 2px 0;
+}
+
+.context-key {
+    color: #5c7da8;
+    font-weight: 500;
+}
+
+.context-val {
+    color: #a8c4e0;
+    font-weight: 600;
+}
+
+/* Chat area */
+.stChatMessage {
+    border-radius: 10px !important;
+}
+
+/* Divider */
+hr {
+    border: none !important;
+    border-top: 1px solid #1e2d45 !important;
+    margin: 1rem 0 !important;
+}
+
+/* Scope section */
+.scope-box {
+    background: #111827;
+    border: 1px solid #1e2d45;
+    border-radius: 8px;
+    padding: 0.8rem 1.2rem;
+    margin-bottom: 1.2rem;
+}
+
+.scope-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #5c7da8;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    margin-bottom: 0.5rem;
+}
+
+.scope-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3px 16px;
+}
+
+.scope-item {
+    font-size: 0.79rem;
+    color: #7b9ec7;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
 # Session state init
@@ -49,29 +265,133 @@ if "thread_id" not in st.session_state:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+if "session_context" not in st.session_state:
+    st.session_state.session_context = {"location": None, "activity": None, "time": None}
+
+if "pending_prompt" not in st.session_state:
+    st.session_state.pending_prompt = None
+
 # ---------------------------------------------------------------------------
-# Display thread ID (for debugging / multi-session)
+# Sidebar
 # ---------------------------------------------------------------------------
 
 with st.sidebar:
-    st.markdown("### Session Info")
-    st.code(st.session_state.thread_id, language=None)
-    st.caption("Each browser session has a unique thread ID. Refresh to start a new session.")
+    # Session status
+    st.markdown(
+        '<div class="session-badge"><span class="session-dot"></span> Session Active</div>',
+        unsafe_allow_html=True,
+    )
 
-    if st.button("🔄 New Session"):
+    st.markdown("#### Session Context")
+    st.caption(
+        "This session remembers your location, activity, and time so "
+        "follow-up questions work naturally."
+    )
+
+    # Context display
+    ctx = st.session_state.session_context
+    loc = ctx.get("location") or "—"
+    act = ctx.get("activity") or "—"
+    tim = ctx.get("time") or "—"
+
+    st.markdown(f"""
+<div class="context-box">
+  <div class="context-row"><span class="context-key">📍 Location &nbsp;</span><span class="context-val">{loc}</span></div>
+  <div class="context-row"><span class="context-key">🚴 Activity &nbsp;</span><span class="context-val">{act}</span></div>
+  <div class="context-row"><span class="context-key">🕐 Time &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><span class="context-val">{tim}</span></div>
+</div>
+""", unsafe_allow_html=True)
+
+    st.caption(
+        "**Example follow-up flow:**  \n"
+        "\"Is it safe to cycle in Bhopal?\" → \"What about this evening?\"  \n"
+        "The bot retains Bhopal + cycling automatically."
+    )
+
+    if st.button("🔄 Start New Session", use_container_width=True):
         st.session_state.thread_id = str(uuid.uuid4())
         st.session_state.messages = []
+        st.session_state.session_context = {"location": None, "activity": None, "time": None}
+        st.session_state.pending_prompt = None
         st.rerun()
 
+    st.caption("Starting a new session clears all remembered context.")
+
     st.markdown("---")
-    st.markdown("### About")
-    st.markdown(
-        "This bot uses:\n"
-        "- **Open-Meteo** for live weather data\n"
-        "- **Deterministic SOPs** for safety decisions\n"
-        "- **LangGraph** for orchestration\n"
-        "- **LLM** for language understanding only"
-    )
+
+    # About / how it works
+    st.markdown("#### How It Works")
+    st.markdown("""
+<div style="font-size:0.8rem; color:#7b9ec7; line-height:2;">
+📝 <b>Question</b> &nbsp;→&nbsp; Understand context<br>
+🔍 <b>Context</b> &nbsp;→&nbsp; Resolve location<br>
+🌤️ <b>Weather</b> &nbsp;→&nbsp; Live Open-Meteo data<br>
+📋 <b>SOP</b> &nbsp;&nbsp;&nbsp;&nbsp;→&nbsp; Match safety policy<br>
+💬 <b>Advisory</b> → Policy-based answer
+</div>
+""", unsafe_allow_html=True)
+    st.caption("The LLM handles language. The SOP engine makes all safety decisions.")
+
+    st.markdown("---")
+    st.markdown("#### What I Can Help With")
+    st.markdown("""
+<div style="font-size:0.79rem; color:#7b9ec7; line-height:1.9;">
+🚴 Cycling &nbsp;&nbsp; 🚶 Walking &nbsp;&nbsp; 🏃 Running<br>
+🚗 Commuting &nbsp;&nbsp; 🛵 Scooter / Motorbike<br>
+🧺 Picnics &amp; outdoor recreation<br>
+👨‍👩‍👧 Children outdoors &nbsp;&nbsp; 👴 Elderly outdoor activities
+</div>
+""", unsafe_allow_html=True)
+    st.caption("Only activities with defined safety policies are supported.")
+
+# ---------------------------------------------------------------------------
+# Main content area — header
+# ---------------------------------------------------------------------------
+
+st.markdown("""
+<div class="header-card">
+  <p class="header-title">🌦️ Weather Advisory Support Bot</p>
+  <p class="header-subtitle">Policy-based outdoor safety guidance using live weather data.</p>
+  <p class="header-desc">Ask whether an outdoor activity is advisable based on current weather conditions and written safety policies. Every recommendation is traceable to a specific policy.</p>
+</div>
+""", unsafe_allow_html=True)
+
+# Pipeline bar
+st.markdown("""
+<div class="pipeline-bar">
+  <span class="pipeline-step">📝 Your Question</span>
+  <span class="pipeline-arrow">→</span>
+  <span class="pipeline-step">🧠 Understand Context</span>
+  <span class="pipeline-arrow">→</span>
+  <span class="pipeline-step">🌤️ Live Weather</span>
+  <span class="pipeline-arrow">→</span>
+  <span class="pipeline-step">📋 Match Safety SOP</span>
+  <span class="pipeline-arrow">→</span>
+  <span class="pipeline-step">💬 Policy Advisory</span>
+</div>
+""", unsafe_allow_html=True)
+
+# ---------------------------------------------------------------------------
+# Example prompts — only show when chat is empty
+# ---------------------------------------------------------------------------
+
+EXAMPLES = [
+    ("🚴", "Cycling", "Is it safe to cycle in Bhopal today?"),
+    ("🚶", "Walking", "Is it okay to walk in Roorkee right now?"),
+    ("👨‍👩‍👧", "Children", "Can I take my child to the park in Delhi this afternoon?"),
+    ("🚗", "Travel", "Should I travel by two-wheeler in Jaipur today?"),
+    ("🧺", "Picnic", "Is today a good day for a picnic in Chandigarh?"),
+    ("🌅", "Follow-up", "What about this evening?"),
+]
+
+if not st.session_state.messages:
+    st.markdown('<div class="examples-header">Try asking</div>', unsafe_allow_html=True)
+    cols = st.columns(3)
+    for i, (emoji, label, prompt) in enumerate(EXAMPLES):
+        col = cols[i % 3]
+        with col:
+            if st.button(f"{emoji} {label}\n\"{prompt}\"", key=f"ex_{i}"):
+                st.session_state.pending_prompt = prompt
 
 # ---------------------------------------------------------------------------
 # Chat history display
@@ -82,10 +402,29 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
 # ---------------------------------------------------------------------------
+# Handle pending prompt (from example button clicks)
+# ---------------------------------------------------------------------------
+
+prompt_to_run = None
+
+if st.session_state.pending_prompt:
+    prompt_to_run = st.session_state.pending_prompt
+    st.session_state.pending_prompt = None
+
+# ---------------------------------------------------------------------------
 # User input
 # ---------------------------------------------------------------------------
 
-if prompt := st.chat_input("Ask a weather-safety question…"):
+if user_input := st.chat_input("Ask a weather-safety question…"):
+    prompt_to_run = user_input
+
+# ---------------------------------------------------------------------------
+# Process prompt
+# ---------------------------------------------------------------------------
+
+if prompt_to_run:
+    prompt = prompt_to_run
+
     # Display user message
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
@@ -93,7 +432,7 @@ if prompt := st.chat_input("Ask a weather-safety question…"):
 
     # Run graph
     with st.chat_message("assistant"):
-        with st.spinner("Checking weather and safety policies…"):
+        with st.spinner("Checking live weather and safety policies…"):
             try:
                 answer = run_graph(
                     user_message=prompt,
@@ -102,9 +441,54 @@ if prompt := st.chat_input("Ask a weather-safety question…"):
             except Exception as exc:
                 answer = (
                     f"❌ **Unexpected Error**\n\n"
-                    f"Something went wrong: {exc}\n\n"
+                    f"Something went wrong: `{exc}`\n\n"
                     f"Please ensure your `GEMINI_API_KEY` is set in your `.env` file."
                 )
         st.markdown(answer)
 
     st.session_state.messages.append({"role": "assistant", "content": answer})
+
+    # --- Update session context display from the answer ---
+    # Parse location, activity, time from the answer text (best-effort)
+    # This is display-only — actual context is managed by LangGraph MemorySaver
+    _ctx = st.session_state.session_context
+
+    # Extract location from "Weather Advisory — LOCATION" pattern
+    import re
+    loc_match = re.search(r"Weather Advisory\s*[—–-]+\s*(.+?)[\n\*]", answer)
+    if loc_match:
+        raw_loc = loc_match.group(1).strip().rstrip("*")
+        if raw_loc and raw_loc not in {"your location", ""}:
+            _ctx["location"] = raw_loc
+
+    # Extract activity from the prompt (simple keyword scan)
+    _ACTIVITY_MAP = {
+        "cycl": "Cycling", "bike": "Cycling", "bicycl": "Cycling",
+        "walk": "Walking", "run": "Running", "jog": "Running",
+        "picnic": "Picnic", "park": "Park visit",
+        "scooter": "Scooter", "motorbike": "Motorbike",
+        "travel": "Travel / commute", "commut": "Travel / commute",
+        "hike": "Hiking", "trek": "Trekking",
+    }
+    prompt_lower = prompt.lower()
+    for kw, label in _ACTIVITY_MAP.items():
+        if kw in prompt_lower:
+            _ctx["activity"] = label
+            break
+
+    # Extract time context from prompt
+    _TIME_MAP = {
+        "evening": "This evening", "morning": "This morning",
+        "afternoon": "This afternoon", "night": "Tonight",
+        "tomorrow": "Tomorrow", "today": "Today", "now": "Now",
+    }
+    for kw, label in _TIME_MAP.items():
+        if kw in prompt_lower:
+            _ctx["time"] = label
+            break
+    else:
+        if not _ctx.get("time"):
+            _ctx["time"] = "Current"
+
+    st.session_state.session_context = _ctx
+    st.rerun()

@@ -48,6 +48,10 @@ class BotState(TypedDict, total=False):
     requested_time: Optional[str]           # e.g. "evening", "tomorrow morning"
     needs_clarification: Optional[bool]     # True → route to clarification_response
 
+    # --- Input normalization ---
+    interpreted_as: Optional[str]           # normalized version of user_message if changed
+    scope_type: Optional[str]               # "relevant" | "irrelevant" | "ambiguous" | "no_sop_activity"
+
     # --- Location ---
     location_text: Optional[str]            # raw location string from intent / memory
     lat: Optional[float]

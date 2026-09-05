@@ -135,7 +135,9 @@ def test_no_match_response():
     }
     result = no_match_response_node(state)
     answer = result["final_answer"]
-    assert "No Weather Safety Concerns" in answer
+    # New format: standardized header + no-concerns message
+    assert "Weather Advisory" in answer
+    assert "No safety concerns" in answer or "No Safety Policy" in answer
 
 
 # ---------------------------------------------------------------------------
@@ -213,7 +215,8 @@ def test_graph_routes_to_no_match_on_benign_weather():
             config={"configurable": {"thread_id": "test-001"}},
         )
 
-    assert "No Weather Safety Concerns" in result["final_answer"]
+    assert "Weather Advisory" in result["final_answer"]
+    assert "No safety concerns" in result["final_answer"] or "No Safety Policy" in result["final_answer"]
 
 
 @pytest.mark.integration

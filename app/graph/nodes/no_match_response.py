@@ -1,27 +1,104 @@
 """
 Node: no_match_response
-Produces an honest "no safety concern found" response when no SOP matches.
-No-match means conditions are within normal safe ranges for known policies,
-NOT that the system failed or the activity is unsafe.
+Produces an honest response when no SOP matches.
+
+Two distinct scenarios:
+A) ACTIVITY HAS NO SOP COVERAGE
+   The user asked about an activity we don't have a policy for.
+   → "We don't have a safety SOP for this activity."
+
+B) CONDITIONS ARE WITHIN SAFE RANGES
+   The activity is covered but no safety threshold was exceeded.
+   → "✅ No safety concerns found — conditions look fine."
+
+Does NOT call the LLM. Does NOT invent safety advice.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Dict
+from typing import Dict, List
 
 from app.graph.state import BotState
+from app.policy.loader import get_sops
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# SOP category awareness
+# ---------------------------------------------------------------------------
+
+def _any_sop_covers_categories(intent_categories: List[str]) -> bool:
+    """
+    Return True if at least one loaded SOP applies to any of the intent categories.
+    This distinguishes "no SOP for this activity" from "SOP exists but conditions OK".
+    """
+    sops = get_sops()
+    for sop in sops:
+        if "*" in sop.applies_to_categories:
+            return True
+        for cat in intent_categories:
+            if cat in sop.applies_to_categories or cat == sop.category:
+                return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _build_weather_inline(facts) -> str:
+    """Build a compact weather summary line (pipe-separated)."""
+    parts = []
+    if facts:
+        if facts.temperature_2m is not None:
+            parts.append(f"🌡️ **{facts.temperature_2m}°C**")
+        if facts.wind_speed_10m is not None:
+            parts.append(f"💨 **{facts.wind_speed_10m} km/h**")
+        if facts.precipitation_probability is not None:
+            parts.append(f"🌧️ **{facts.precipitation_probability}%** rain chance")
+        if facts.uv_index is not None:
+            parts.append(f"☀️ UV **{facts.uv_index}**")
+    return " | ".join(parts) if parts else "(weather data unavailable)"
+
+
+def _build_conditions_block(facts) -> str:
+    """Build bullet-list conditions block."""
+    lines = []
+    if not facts:
+        return "  • (weather data unavailable)"
+
+    field_labels = {
+        "temperature_2m":            ("🌡️ Temperature",           "°C"),
+        "apparent_temperature":      ("🤔 Feels like",             "°C"),
+        "relative_humidity_2m":      ("💧 Humidity",               "%"),
+        "precipitation_probability": ("🌧️ Rain probability",       "%"),
+        "precipitation_sum_today":   ("🌧️ Today's rain total",     " mm"),
+        "wind_speed_10m":            ("💨 Wind speed",             " km/h"),
+        "wind_gusts_10m":            ("💨 Wind gusts",             " km/h"),
+        "uv_index":                  ("☀️ UV index",               ""),
+        "visibility":                ("👁️ Visibility",            " m"),
+    }
+    d = facts.to_facts_dict()
+    for field, (label, unit) in field_labels.items():
+        val = d.get(field)
+        if val is not None:
+            lines.append(f"  • {label}: **{val}{unit}**")
+
+    return "\n".join(lines) if lines else "  • (weather data unavailable)"
+
+
+# ---------------------------------------------------------------------------
+# Node
+# ---------------------------------------------------------------------------
 
 def no_match_response_node(state: BotState) -> Dict:
     """
     LangGraph node: produce a no-policy-fired response.
 
-    A no-match means: no safety SOP was triggered by current conditions.
-    This is generally GOOD news — it means conditions are within normal safe ranges.
-    We still show the actual weather numbers so the user can judge for themselves.
+    Distinguishes between:
+    - Activity not covered by any SOP (no guidance available)
+    - Activity covered but conditions are fine (positive "all clear")
     """
     conversation_history = state.get("conversation_history", [])
     location = state.get("resolved_location", "your area")
@@ -30,61 +107,72 @@ def no_match_response_node(state: BotState) -> Dict:
 
     logger.info("no_match_response_node: no SOPs matched for location=%s", location)
 
-    # Build weather summary line
-    weather_parts = []
-    if facts:
-        if facts.temperature_2m is not None:
-            weather_parts.append(f"🌡️ Temperature: **{facts.temperature_2m}°C**")
-        if facts.apparent_temperature is not None:
-            weather_parts.append(f"🤔 Feels like: **{facts.apparent_temperature}°C**")
-        if facts.relative_humidity_2m is not None:
-            weather_parts.append(f"💧 Humidity: **{facts.relative_humidity_2m}%**")
-        if facts.wind_speed_10m is not None:
-            weather_parts.append(f"💨 Wind: **{facts.wind_speed_10m} km/h**")
-        if facts.wind_gusts_10m is not None:
-            weather_parts.append(f"💨 Gusts: **{facts.wind_gusts_10m} km/h**")
-        if facts.precipitation_probability is not None:
-            weather_parts.append(f"🌧️ Rain chance: **{facts.precipitation_probability}%**")
-        if facts.uv_index is not None:
-            weather_parts.append(f"☀️ UV index: **{facts.uv_index}**")
-        if facts.visibility is not None and facts.visibility < 5000:
-            weather_parts.append(f"👁️ Visibility: **{facts.visibility} m**")
-
-    # Activity context
+    # --- Activity context ---
     activity_hint = ""
+    activity_label = ""
     if intent:
         mode = intent.mode
-        cats = intent.activity_categories
+        cats = intent.activity_categories or []
         if mode:
             activity_hint = f" for **{mode}**"
-        elif cats:
+            activity_label = mode
+        elif cats and cats != ["general"]:
             activity_hint = f" for **{', '.join(cats)}**"
+            activity_label = cats[0]
 
-    # Build the answer
-    answer_lines = [
-        f"✅ **No Weather Safety Concerns Found**\n",
-        f"Based on live weather data for **{location}**, no safety thresholds from our policy library were exceeded{activity_hint}.\n",
-        f"This means current conditions are within normal safe ranges for all monitored weather hazards (extreme heat, thunderstorm, poor visibility, strong gusts, etc.).\n",
-    ]
+    # --- Check if any SOP covers this activity at all ---
+    intent_categories = intent.activity_categories if intent else []
+    # Filter out 'general' — it's a fallback category, not a real activity signal
+    real_cats = [c for c in intent_categories if c != "general"]
+    has_coverage = _any_sop_covers_categories(real_cats) if real_cats else True
 
-    # Add weather facts table
-    if weather_parts:
-        answer_lines.append(f"**Current conditions in {location}:**")
-        answer_lines.append(" | ".join(weather_parts))
+    conditions_block = _build_conditions_block(facts)
 
-    # Soft caveats
-    answer_lines.append(
-        "\n---\n"
-        "_This assessment reflects automated safety policies only. "
-        "Always use personal judgment and check local conditions before heading out._"
-    )
+    if not has_coverage and real_cats:
+        # --- SCENARIO A: No SOP coverage for this activity ---
+        answer_lines = [
+            f"🌤️ **Weather Advisory — {location}**",
+            "",
+            "**No Safety Policy Available**",
+            "",
+            f"I checked the live weather data{activity_hint}, but our policy library "
+            f"doesn't have a safety SOP for this specific activity. "
+            f"I can't provide a policy-based recommendation without an applicable SOP.",
+            "",
+            "**Current Conditions**",
+            conditions_block,
+            "",
+            "---",
+            "_To get a policy-based advisory, ask about: cycling, walking, running, "
+            "outdoor recreation, travel, or activities for children or elderly._",
+        ]
+    else:
+        # --- SCENARIO B: Conditions are within safe ranges ---
+        answer_lines = [
+            f"✅ **Weather Advisory — {location}**",
+            "",
+            "**Recommendation**",
+            f"No safety concerns found{activity_hint}. "
+            f"Current conditions in **{location}** are within normal safe ranges — "
+            f"none of our weather safety thresholds were exceeded.",
+            "",
+            "**Current Conditions**",
+            conditions_block,
+            "",
+            "**Severity**",
+            "✅ NO SAFETY CONCERNS",
+            "",
+            "---",
+            "_This assessment reflects automated safety policies only. "
+            "Always use personal judgment and check local conditions before heading out._",
+        ]
 
-    # Extra note if rain chance is high but no thunderstorm SOP fired
-    if facts and facts.precipitation_probability is not None and facts.precipitation_probability >= 60:
-        answer_lines.append(
-            f"\n⚠️ _Note: Rain probability is **{facts.precipitation_probability}%** — "
-            "you may want to carry rain gear even though no formal safety policy was triggered._"
-        )
+        # Extra advisory if rain chance is high but no SOP fired
+        if facts and facts.precipitation_probability is not None and facts.precipitation_probability >= 60:
+            answer_lines.append(
+                f"\n⚠️ _Note: Rain probability is **{facts.precipitation_probability}%** — "
+                "consider carrying rain gear even though no formal safety policy was triggered._"
+            )
 
     answer = "\n".join(answer_lines)
 
