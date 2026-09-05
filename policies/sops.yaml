@@ -1,0 +1,373 @@
+# Weather Advisory Support Bot — SOP Library
+# Version: 1.0
+#
+# SCHEMA NOTES:
+#   match_type: "rule" | "score"
+#   condition uses a safe grammar:
+#     type: all | any | not | score_gte | score_lt | leaf
+#   leaf operators: gt, gte, lt, lte, eq, ne, in, contains, between
+#   NEVER use Python eval/exec on these conditions.
+#
+# ADDING A NEW SOP:
+#   1. Add a new entry below with a unique id.
+#   2. List required_fields (Open-Meteo variable names).
+#   3. Define condition using the grammar above.
+#   4. Restart the application.
+#   No changes to graph.py, matcher code, or weather-fetch code needed
+#   (provided the required_fields are supported by Open-Meteo).
+
+sops:
+
+  - id: SOP-001
+    title: "Extreme Apparent Heat During Exercise"
+    category: outdoor_exercise
+    severity: critical
+    match_type: rule
+    overrides: false
+    priority: 10
+    applies_to_categories: ["outdoor_exercise"]
+    required_fields:
+      - apparent_temperature
+    condition:
+      type: all
+      conditions:
+        - type: leaf
+          field: apparent_temperature
+          op: gte
+          value: 41
+    advice_template: >
+      ⚠️ **SOP-001 | Extreme Apparent Heat During Exercise | CRITICAL**
+
+      The current apparent temperature is **{apparent_temperature}°C**, which is at or above the extreme heat threshold of 41°C.
+
+      **Recommendation:** Do not perform strenuous outdoor exercise under these conditions.
+      Heat stress at this level can cause heat exhaustion or heat stroke rapidly.
+      Postpone your activity, move indoors, or choose a significantly cooler time of day.
+
+  - id: SOP-002
+    title: "Heat + Humidity During Strenuous Exercise"
+    category: outdoor_exercise
+    severity: high
+    match_type: rule
+    overrides: false
+    priority: 20
+    applies_to_categories: ["outdoor_exercise"]
+    required_fields:
+      - temperature_2m
+      - relative_humidity_2m
+    condition:
+      type: all
+      conditions:
+        - type: leaf
+          field: temperature_2m
+          op: gte
+          value: 30
+        - type: leaf
+          field: relative_humidity_2m
+          op: gte
+          value: 70
+    advice_template: >
+      ⚠️ **SOP-002 | Heat + Humidity During Strenuous Exercise | HIGH**
+
+      Current conditions: temperature **{temperature_2m}°C** with relative humidity **{relative_humidity_2m}%**.
+      This combination significantly impairs the body's ability to cool itself through sweating.
+
+      **Recommendation:** Reduce intensity and duration of your workout.
+      Increase water intake and recovery breaks. Avoid peak heat hours (10am–4pm).
+      Monitor for signs of heat exhaustion: dizziness, nausea, or excessive sweating.
+
+  - id: SOP-004
+    title: "Poor Visibility During Running or Cycling"
+    category: outdoor_exercise
+    severity: high
+    match_type: rule
+    overrides: false
+    priority: 30
+    applies_to_categories: ["outdoor_exercise"]
+    required_fields:
+      - visibility
+    condition:
+      type: all
+      conditions:
+        - type: leaf
+          field: visibility
+          op: lt
+          value: 500
+    advice_template: >
+      ⚠️ **SOP-004 | Poor Visibility During Running or Cycling | HIGH**
+
+      Current visibility is only **{visibility} meters**, which is below the safe threshold of 500m for road running or cycling.
+
+      **Recommendation:** Consider indoor exercise alternatives (treadmill, stationary bike, gym session)
+      or postpone until visibility improves. If you must go out, use high-visibility clothing and lights.
+
+  - id: SOP-005
+    title: "Thunderstorm During Any Outdoor Activity"
+    category: outdoor_recreation
+    severity: critical
+    match_type: rule
+    overrides: true
+    priority: 1
+    applies_to_categories: ["*"]
+    required_fields:
+      - weathercode
+    condition:
+      type: leaf
+      field: weathercode
+      op: in
+      value: [95, 96, 99]
+    advice_template: >
+      🚨 **SOP-005 | Thunderstorm During Any Outdoor Activity | CRITICAL — OVERRIDE**
+
+      A thunderstorm is currently active in your area (weather code: **{weathercode}**).
+
+      **Recommendation:** Seek substantial shelter or get indoors immediately.
+      Do NOT continue any outdoor activity during active thunderstorm conditions.
+      Lightning risk is present. Avoid open fields, tall trees, and bodies of water.
+      Wait at least 30 minutes after the last thunder before resuming outdoor activity.
+
+  - id: SOP-007
+    title: "Strong Wind Gusts During Open-Air Recreation"
+    category: outdoor_recreation
+    severity: high
+    match_type: rule
+    overrides: false
+    priority: 40
+    applies_to_categories: ["outdoor_recreation"]
+    required_fields:
+      - wind_gusts_10m
+    condition:
+      type: all
+      conditions:
+        - type: leaf
+          field: wind_gusts_10m
+          op: gte
+          value: 55
+    advice_template: >
+      ⚠️ **SOP-007 | Strong Wind Gusts During Open-Air Recreation | HIGH**
+
+      Wind gusts are currently reaching **{wind_gusts_10m} km/h**, exceeding the safe threshold of 55 km/h for open-air recreation.
+
+      **Recommendation:** Move plans indoors or reschedule for a calmer day.
+      Strong gusts at this level can cause flying debris, topple lightweight structures (tents, gazebos),
+      and make outdoor recreation unpleasant and potentially hazardous.
+
+  - id: SOP-008
+    title: "Picnic / Casual Outing Suitability — Favorable"
+    category: outdoor_recreation
+    severity: low
+    match_type: score
+    overrides: false
+    priority: 50
+    applies_to_categories: ["outdoor_recreation"]
+    required_fields:
+      - temperature_2m
+      - precipitation_probability
+      - wind_speed_10m
+      - uv_index
+    score_config:
+      criteria:
+        - field: temperature_2m
+          op: between
+          value: [18, 29]
+          weight: 2
+        - field: precipitation_probability
+          op: lt
+          value: 20
+          weight: 2
+        - field: wind_speed_10m
+          op: lt
+          value: 20
+          weight: 1
+        - field: uv_index
+          op: lt
+          value: 7
+          weight: 1
+    condition:
+      type: score_gte
+      threshold: 4
+    advice_template: >
+      ✅ **SOP-008 | Picnic / Casual Outing Suitability — Favorable | LOW CONCERN**
+
+      Conditions look good for your outing!
+      Temperature: **{temperature_2m}°C** | Rain chance: **{precipitation_probability}%** |
+      Wind: **{wind_speed_10m} km/h** | UV index: **{uv_index}**
+
+      **Recommendation:** Conditions are generally favorable for a picnic or casual outdoor outing.
+      Apply sunscreen if UV index is above 3, bring water, and enjoy your time outside.
+
+  - id: SOP-008B
+    title: "Picnic / Casual Outing Suitability — Marginal or Poor"
+    category: outdoor_recreation
+    severity: moderate
+    match_type: score
+    overrides: false
+    priority: 51
+    applies_to_categories: ["outdoor_recreation"]
+    required_fields:
+      - temperature_2m
+      - precipitation_probability
+      - wind_speed_10m
+      - uv_index
+    score_config:
+      criteria:
+        - field: temperature_2m
+          op: between
+          value: [18, 29]
+          weight: 2
+        - field: precipitation_probability
+          op: lt
+          value: 20
+          weight: 2
+        - field: wind_speed_10m
+          op: lt
+          value: 20
+          weight: 1
+        - field: uv_index
+          op: lt
+          value: 7
+          weight: 1
+    condition:
+      type: score_lt
+      threshold: 2
+    advice_template: >
+      ⚠️ **SOP-008B | Picnic / Casual Outing Suitability — Marginal or Poor | MODERATE**
+
+      Current suitability score for outdoor recreation is low.
+      Temperature: **{temperature_2m}°C** | Rain chance: **{precipitation_probability}%** |
+      Wind: **{wind_speed_10m} km/h** | UV index: **{uv_index}**
+
+      **Recommendation:** Conditions are less favorable for a relaxed outing.
+      Consider postponing or choosing an indoor alternative. Check back when conditions improve.
+
+  - id: SOP-010
+    title: "Dense Fog During Road Travel"
+    category: travel
+    severity: critical
+    match_type: rule
+    overrides: false
+    priority: 10
+    applies_to_categories: ["travel"]
+    required_fields:
+      - visibility
+    condition:
+      type: all
+      conditions:
+        - type: leaf
+          field: visibility
+          op: lt
+          value: 200
+    advice_template: >
+      🚨 **SOP-010 | Dense Fog During Road Travel | CRITICAL**
+
+      Visibility is currently only **{visibility} meters**, which is below the critical threshold of 200m for road travel.
+
+      **Recommendation:** Delay non-essential road travel.
+      If travel is unavoidable: use low-beam headlights, reduce speed significantly,
+      increase following distance to at least 4 seconds, and be prepared for sudden stops.
+      Watch for slower-moving vehicles.
+
+  - id: SOP-012
+    title: "Strong Wind Gusts During Two-Wheeler Travel"
+    category: travel
+    severity: high
+    match_type: rule
+    overrides: false
+    priority: 20
+    applies_to_categories: ["travel"]
+    required_fields:
+      - wind_gusts_10m
+    condition:
+      type: all
+      conditions:
+        - type: leaf
+          field: wind_gusts_10m
+          op: gte
+          value: 50
+    advice_template: >
+      ⚠️ **SOP-012 | Strong Wind Gusts During Two-Wheeler Travel | HIGH**
+
+      Wind gusts are reaching **{wind_gusts_10m} km/h**, which exceeds the safe threshold of 50 km/h for cycling, motorbike, or scooter travel.
+
+      **Recommendation:** Consider delaying your trip or switching to a more sheltered transport mode (bus, car, or train).
+      Strong gusts can cause unexpected lateral movement and loss of control, especially on open roads and bridges.
+
+  - id: SOP-014
+    title: "Child Outdoor Activity During High Heat"
+    category: vulnerable_groups
+    severity: high
+    match_type: rule
+    overrides: false
+    priority: 10
+    applies_to_categories: ["vulnerable_groups"]
+    required_fields:
+      - apparent_temperature
+    condition:
+      type: all
+      conditions:
+        - type: leaf
+          field: apparent_temperature
+          op: gte
+          value: 35
+    advice_template: >
+      ⚠️ **SOP-014 | Child Outdoor Activity During High Heat | HIGH**
+
+      The apparent temperature is **{apparent_temperature}°C**, which exceeds the safe threshold of 35°C for children's outdoor activity.
+
+      **Recommendation:** Limit prolonged outdoor activity for children.
+      Plan outdoor time during cooler parts of the day (early morning or after sunset).
+      Ensure adequate shade, regular hydration breaks every 15–20 minutes, and lightweight clothing.
+      Watch for signs of heat stress in children: irritability, flushed skin, or lethargy.
+
+  - id: SOP-019
+    title: "Sustained Regional Storm / Rain System"
+    category: general
+    severity: critical
+    match_type: rule
+    overrides: true
+    priority: 2
+    applies_to_categories: ["*"]
+    required_fields:
+      - precipitation_sum_today
+      - precipitation_sum_next_2d
+      - wind_gusts_10m
+      - precipitation_probability
+    condition:
+      type: any
+      conditions:
+        - type: all
+          conditions:
+            - type: leaf
+              field: precipitation_sum_today
+              op: gte
+              value: 64.5
+            - type: leaf
+              field: precipitation_sum_next_2d
+              op: gte
+              value: 80
+        - type: all
+          conditions:
+            - type: leaf
+              field: wind_gusts_10m
+              op: gte
+              value: 60
+            - type: leaf
+              field: precipitation_probability
+              op: gte
+              value: 60
+    advice_template: >
+      🚨 **SOP-019 | Sustained Regional Storm / Rain System | CRITICAL — OVERRIDE**
+
+      Current indicators suggest a significant regional weather system may be active.
+      Today's precipitation sum: **{precipitation_sum_today} mm** |
+      Next 48h precipitation sum: **{precipitation_sum_next_2d} mm** |
+      Wind gusts: **{wind_gusts_10m} km/h** |
+      Rain probability: **{precipitation_probability}%**
+
+      **Recommendation:** Treat outdoor plans as higher risk.
+      Postpone non-essential activities. Avoid flood-prone or low-lying routes.
+      Check official meteorological alerts and local emergency services for your area.
+
+      ⚠️ *Note: This assessment is based on Open-Meteo forecast data and is a proxy indicator for
+      a sustained regional weather system. This system does not directly access IMD or other
+      official alert services. Always verify with official sources.*
