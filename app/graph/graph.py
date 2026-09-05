@@ -6,6 +6,7 @@ Graph flow:
   START
     ↓
   parse_intent
+    ├── needs_clarification ─────────────────→ clarification_response → END
     ↓
   resolve_location ──── failure ──→ error_response → END
     ↓
@@ -14,13 +15,20 @@ Graph flow:
   extract_facts ─────── failure ──→ error_response → END
     ↓
   match_sops
-    ├── no match ──────────────────→ no_match_response → END
+    ├── no match ──────────────────────────→ no_match_response → END
     ↓
   resolve_policy
     ↓
-  compose_answer
+  generate_response    ← LLM composes language from structured policy decision
     ↓
   END
+
+Branching summary:
+  parse_intent    → clarification_response (ambiguous) | resolve_location (normal)
+  resolve_location → error_response (failure) | fetch_weather (success)
+  fetch_weather    → error_response (failure) | extract_facts (success)
+  extract_facts    → error_response (failure) | match_sops (success)
+  match_sops       → no_match_response (empty) | resolve_policy (matches found)
 """
 
 from __future__ import annotations
@@ -31,10 +39,11 @@ from typing import Literal
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
-from app.graph.nodes.compose_answer import compose_answer_node
+from app.graph.nodes.clarification_response import clarification_response_node
 from app.graph.nodes.error_response import error_response_node
 from app.graph.nodes.extract_facts import extract_facts_node
 from app.graph.nodes.fetch_weather import fetch_weather_node
+from app.graph.nodes.generate_response import generate_response_node
 from app.graph.nodes.match_sops import match_sops_node
 from app.graph.nodes.no_match_response import no_match_response_node
 from app.graph.nodes.parse_intent import parse_intent_node
@@ -48,6 +57,19 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Routing functions (conditional edges)
 # ---------------------------------------------------------------------------
+
+def route_after_intent(
+    state: BotState,
+) -> Literal["clarification_response", "resolve_location", "error_response"]:
+    """Route to clarification if ambiguous; error if LLM failed; normal otherwise."""
+    if state.get("error_type"):
+        logger.debug("Routing: intent failure → error_response")
+        return "error_response"
+    if state.get("needs_clarification"):
+        logger.debug("Routing: ambiguous intent → clarification_response")
+        return "clarification_response"
+    return "resolve_location"
+
 
 def route_after_location(
     state: BotState,
@@ -103,24 +125,34 @@ def build_graph() -> StateGraph:
 
     # --- Add nodes ---
     builder.add_node("parse_intent", parse_intent_node)
+    builder.add_node("clarification_response", clarification_response_node)
     builder.add_node("resolve_location", resolve_location_node)
     builder.add_node("fetch_weather", fetch_weather_node)
     builder.add_node("extract_facts", extract_facts_node)
     builder.add_node("match_sops", match_sops_node)
     builder.add_node("resolve_policy", resolve_policy_node)
-    builder.add_node("compose_answer", compose_answer_node)
+    builder.add_node("generate_response", generate_response_node)
     builder.add_node("error_response", error_response_node)
     builder.add_node("no_match_response", no_match_response_node)
 
     # --- Fixed edges ---
     builder.add_edge(START, "parse_intent")
-    builder.add_edge("parse_intent", "resolve_location")
-    builder.add_edge("resolve_policy", "compose_answer")
-    builder.add_edge("compose_answer", END)
+    builder.add_edge("resolve_policy", "generate_response")
+    builder.add_edge("generate_response", END)
+    builder.add_edge("clarification_response", END)
     builder.add_edge("error_response", END)
     builder.add_edge("no_match_response", END)
 
     # --- Conditional edges (real branching) ---
+    builder.add_conditional_edges(
+        "parse_intent",
+        route_after_intent,
+        {
+            "clarification_response": "clarification_response",
+            "resolve_location": "resolve_location",
+            "error_response": "error_response",
+        },
+    )
     builder.add_conditional_edges(
         "resolve_location",
         route_after_location,

@@ -43,4 +43,7 @@ def resolve_policy_node(state: BotState) -> Dict:
         decision.resolution_reason,
     )
 
-    return {"policy_decision": decision}
+    return {
+        "policy_decision": decision,
+        "selected_sop": decision.primary,   # explicit field per state schema
+    }

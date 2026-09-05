@@ -135,7 +135,7 @@ def test_no_match_response():
     }
     result = no_match_response_node(state)
     answer = result["final_answer"]
-    assert "No Applicable Safety Policy" in answer
+    assert "No Weather Safety Concerns" in answer
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +143,7 @@ def test_no_match_response():
 # ---------------------------------------------------------------------------
 
 def test_compose_answer_template_fills_values():
-    """Template placeholders are replaced with real fact values."""
+    """Standardized format contains SOP ID, severity, location, and actual weather value."""
     from app.policy.models import MatchResult, PolicyDecision
 
     primary = MatchResult(
@@ -167,9 +167,12 @@ def test_compose_answer_template_fills_values():
     }
     result = compose_answer_node(state)
     answer = result["final_answer"]
-    assert "44.0°C" in answer
+    # Standardized format checks
     assert "SOP-001" in answer
     assert "Test City" in answer
+    assert "CRITICAL" in answer
+    assert "44.0" in answer          # actual weather value present
+    assert "Weather Advisory" in answer  # standardized header
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +213,7 @@ def test_graph_routes_to_no_match_on_benign_weather():
             config={"configurable": {"thread_id": "test-001"}},
         )
 
-    assert "No Applicable Safety Policy" in result["final_answer"]
+    assert "No Weather Safety Concerns" in result["final_answer"]
 
 
 @pytest.mark.integration
@@ -233,3 +236,60 @@ def test_graph_routes_to_error_on_weather_failure():
         )
 
     assert "Weather Data Unavailable" in result["final_answer"]
+
+
+@pytest.mark.integration
+def test_graph_routes_to_generate_response_on_sop_match():
+    """Full graph: thunderstorm weather + outdoor_exercise → SOP-005 → generate_response."""
+    from app.graph.graph import build_graph
+
+    intent = _make_intent(categories=["outdoor_exercise"], mode="cycling", location="London")
+
+    mock_facts = _make_facts(
+        weathercode=95,
+        temperature_2m=28.0,
+        apparent_temperature=30.0,
+        wind_gusts_10m=40.0,
+        precipitation_probability=80.0,
+        wind_speed_10m=25.0,
+        visibility=800.0,
+        uv_index=3.0,
+        precipitation_sum_today=20.0,
+        precipitation_sum_next_2d=30.0,
+    )
+
+    # Mock generate_response_node's LLM call so we don't need a real API key in CI
+    mock_llm_response = MagicMock()
+    mock_llm_response.text = '{"recommendation": "Do not cycle outdoors.", "why": "Thunderstorm is active."}'
+
+    with (
+        patch("app.graph.nodes.parse_intent.parse_intent", return_value=intent),
+        patch("app.graph.nodes.resolve_location.resolve_location", return_value=(51.5, -0.1, "London, UK")),
+        patch("app.graph.nodes.fetch_weather.fetch_weather", return_value=mock_facts),
+        patch("app.graph.nodes.generate_response.get_llm_client") as mock_client,
+    ):
+        mock_client.return_value.models.generate_content.return_value = mock_llm_response
+        graph = build_graph()
+        result = graph.invoke(
+            {"user_message": "Is it safe to cycle in London?", "thread_id": "test-003"},
+            config={"configurable": {"thread_id": "test-003"}},
+        )
+
+    answer = result["final_answer"]
+    assert "SOP-005" in answer           # correct SOP identified
+    assert "CRITICAL" in answer          # severity preserved
+    assert "Weather Advisory" in answer  # standardized format header
+    assert "London" in answer            # location present
+
+
+@pytest.mark.integration
+def test_sop_015_matches_high_rain_probability():
+    """SOP-015 fires when precipitation_probability >= 70 for outdoor_exercise."""
+    facts = _make_facts(precipitation_probability=75.0)
+    intent = _make_intent(categories=["outdoor_exercise"], mode="cycling")
+    state: BotState = {"weather_facts": facts, "intent": intent}
+
+    result = match_sops_node(state)
+    matches = result["sop_matches"]
+    ids = [m.sop_id for m in matches]
+    assert "SOP-015" in ids, f"Expected SOP-015 in {ids}"

@@ -20,15 +20,17 @@ class BotState(TypedDict, total=False):
     Full shared state for one conversation turn through the LangGraph graph.
 
     Lifecycle:
-      parse_intent        → populates: intent, conversation_history, error
+      parse_intent        → populates: intent, activity, requested_time,
+                            needs_clarification, conversation_history, error
       resolve_location    → populates: lat, lon, resolved_location, error
       fetch_weather       → populates: raw_weather_response, error
       extract_facts       → populates: weather_facts
       match_sops          → populates: sop_matches
-      resolve_policy      → populates: policy_decision
-      compose_answer      → populates: final_answer
+      resolve_policy      → populates: policy_decision, selected_sop
+      generate_response   → populates: final_answer
       error_response      → populates: final_answer
       no_match_response   → populates: final_answer
+      clarification_response → populates: final_answer
     """
 
     # --- Input ---
@@ -40,6 +42,11 @@ class BotState(TypedDict, total=False):
 
     # --- Intent ---
     intent: Optional[ParsedIntent]
+
+    # --- Resolved structured context (explicit, not buried in intent blob) ---
+    activity: Optional[str]                 # e.g. "cycling", "park visit with child"
+    requested_time: Optional[str]           # e.g. "evening", "tomorrow morning"
+    needs_clarification: Optional[bool]     # True → route to clarification_response
 
     # --- Location ---
     location_text: Optional[str]            # raw location string from intent / memory
@@ -54,6 +61,7 @@ class BotState(TypedDict, total=False):
     # --- Policy ---
     sop_matches: Optional[List[MatchResult]]
     policy_decision: Optional[PolicyDecision]
+    selected_sop: Optional[MatchResult]     # the winning SOP (primary from decision)
 
     # --- Output ---
     final_answer: Optional[str]

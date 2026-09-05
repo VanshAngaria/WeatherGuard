@@ -2,6 +2,7 @@
 Node: parse_intent
 Classifies user message into structured intent using the LLM.
 Merges intent with session memory to support follow-up queries.
+Detects ambiguous context and sets needs_clarification flag.
 """
 
 from __future__ import annotations
@@ -19,9 +20,15 @@ def parse_intent_node(state: BotState) -> Dict:
     """
     LangGraph node: parse user intent.
 
-    - Calls the LLM intent parser with conversation history for context.
-    - Merges follow-up intents with previous session state (location, mode, group).
-    - Returns updated state fields.
+    Responsibilities:
+    - Call LLM intent parser with conversation history for context.
+    - Merge follow-up intents with previous session state.
+    - Populate explicit structured state fields: activity, requested_time.
+    - Set needs_clarification=True when context cannot be resolved.
+
+    Context resolution priority:
+    - New intent fields take precedence over session memory.
+    - Session memory fills in missing fields from new intent.
     """
     user_message = state.get("user_message", "")
     conversation_history = state.get("conversation_history", [])
@@ -40,24 +47,77 @@ def parse_intent_node(state: BotState) -> Dict:
             "error_type": "llm_failure",
         }
 
-    # --- Follow-up resolution ---
-    # If this is a follow-up query, inherit previous location/mode/group from state.
+    prev_intent = state.get("intent")
+
+    # -------------------------------------------------------------------------
+    # STEP 1: Follow-up resolution
+    # If the LLM detected is_follow_up=True, merge missing fields from session.
+    # -------------------------------------------------------------------------
     if intent.is_follow_up:
         logger.info("Follow-up query detected — merging with session memory.")
 
-        # Inherit location from session if not provided in current turn
+        # Location: inherit from session if not provided in current turn
         if not intent.location:
             intent.location = state.get("location_text") or state.get("resolved_location")
 
-        # Inherit categories if empty
-        if not intent.activity_categories:
-            prev_intent = state.get("intent")
-            if prev_intent:
-                intent.activity_categories = prev_intent.activity_categories
-                if not intent.mode:
-                    intent.mode = prev_intent.mode
-                if not intent.group:
-                    intent.group = prev_intent.group
+        # Activity categories: inherit if empty
+        if not intent.activity_categories and prev_intent:
+            intent.activity_categories = prev_intent.activity_categories
+            # Only inherit mode/group if the user didn't specify a new one
+            if not intent.mode:
+                intent.mode = prev_intent.mode
+            if not intent.group:
+                intent.group = prev_intent.group
+
+    # -------------------------------------------------------------------------
+    # STEP 2: Location-only / no-activity message
+    # If user sent a city name with no activity (e.g. "Roorkee"),
+    # inherit previous activity from session. Default to "general" otherwise.
+    # -------------------------------------------------------------------------
+    if not intent.activity_categories and not intent.is_follow_up:
+        if prev_intent and prev_intent.activity_categories:
+            logger.info(
+                "No activity in current message — inheriting from session: %s",
+                prev_intent.activity_categories,
+            )
+            intent.activity_categories = prev_intent.activity_categories
+            if not intent.mode:
+                intent.mode = prev_intent.mode
+            if not intent.group:
+                intent.group = prev_intent.group
+        else:
+            # No prior context — default to general weather check
+            intent.activity_categories = ["general"]
+            logger.info("No activity context; defaulting to 'general' category.")
+
+    # -------------------------------------------------------------------------
+    # STEP 3: Ambiguity detection
+    # If this is a follow-up that changes ONLY the time ("later", "eventually")
+    # and there is no resolvable location in state, ask for clarification.
+    # -------------------------------------------------------------------------
+    needs_clarification = False
+    if intent.is_follow_up and intent.time_context in {"evening", "night", "morning", "afternoon"}:
+        # Check: do we have a resolvable location from this turn or session?
+        resolved_location = (
+            intent.location
+            or state.get("location_text")
+            or state.get("resolved_location")
+        )
+        if not resolved_location:
+            logger.info("Ambiguous follow-up — no location resolvable; requesting clarification.")
+            needs_clarification = True
+
+    # -------------------------------------------------------------------------
+    # STEP 4: Populate explicit structured fields
+    # -------------------------------------------------------------------------
+    # activity: prefer raw_activity from LLM, fallback to mode, then first category
+    activity = (
+        intent.raw_activity
+        or intent.mode
+        or (intent.activity_categories[0] if intent.activity_categories else None)
+    )
+
+    requested_time = intent.time_context
 
     # Determine location text for next node
     location_text = intent.location or state.get("location_text")
@@ -69,6 +129,9 @@ def parse_intent_node(state: BotState) -> Dict:
 
     return {
         "intent": intent,
+        "activity": activity,
+        "requested_time": requested_time,
+        "needs_clarification": needs_clarification,
         "location_text": location_text,
         "conversation_history": updated_history,
         "error": None,

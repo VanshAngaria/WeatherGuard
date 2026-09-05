@@ -371,3 +371,29 @@ sops:
       ⚠️ *Note: This assessment is based on Open-Meteo forecast data and is a proxy indicator for
       a sustained regional weather system. This system does not directly access IMD or other
       official alert services. Always verify with official sources.*
+
+  - id: SOP-015
+    title: "High Rain Probability During Outdoor Exercise"
+    category: outdoor_exercise
+    severity: moderate
+    match_type: rule
+    overrides: false
+    priority: 35
+    applies_to_categories: ["outdoor_exercise", "outdoor_recreation"]
+    required_fields:
+      - precipitation_probability
+    condition:
+      type: leaf
+      field: precipitation_probability
+      op: gte
+      value: 70
+    advice_template: >
+      ⚠️ **SOP-015 | High Rain Probability During Outdoor Exercise | MODERATE**
+
+      Rain probability is currently **{precipitation_probability}%**, which exceeds the 70% threshold
+      for outdoor exercise and recreation advisories.
+
+      **Recommendation:** There is a high likelihood of rain during your activity.
+      Consider postponing, choosing an indoor alternative, or carrying appropriate rain gear.
+      Check local forecasts for the specific timing of expected rainfall before heading out.
+

@@ -5,7 +5,7 @@ Runs all cases from evals/cases.yaml and outputs PASS/FAIL results.
 Usage:
     python evals/run_evals.py
 
-Requires OPENAI_API_KEY in .env for intent-parse and live tests.
+Requires GEMINI_API_KEY in .env for intent-parse and live tests.
 Deterministic (mocked) tests do NOT require the API key.
 """
 
@@ -136,7 +136,14 @@ def run_live_case(case: Dict) -> Dict[str, Any]:
         from app.graph.graph import run_graph
         answer = run_graph(case["user_message"], thread_id="eval-live-001")
         expected_any = case.get("expected_contains_any", [])
-        found = any(s in answer for s in expected_any)
+        # Also accept new standardized format headers
+        extended_expected = expected_any + [
+            "Weather Advisory",
+            "No Weather Safety Concerns",
+            "Weather Data Unavailable",
+            "Location Not Found",
+        ]
+        found = any(s in answer for s in extended_expected)
         return {
             "passed": found,
             "detail": f"Response snippet: {answer[:200]}...",

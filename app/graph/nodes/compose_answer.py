@@ -1,10 +1,11 @@
 """
-Node: compose_answer
-Renders the final user-facing response from the SOP advice template.
-Template substitution uses only WeatherFacts values — no LLM generation.
+Node: compose_answer (kept as utility / fallback)
+Renders the standardized response format using template substitution only.
+No LLM call. Used as fallback when generate_response LLM call fails,
+and directly tested in unit tests.
 
-The LLM does NOT decide the advice content.
-The primary SOP's advice_template drives the response.
+The full graph uses generate_response_node (LLM narration).
+This node produces the same standardized structure deterministically.
 """
 
 from __future__ import annotations
@@ -16,12 +17,25 @@ from app.graph.state import BotState
 
 logger = logging.getLogger(__name__)
 
+_SEVERITY_LABEL = {
+    "critical": "🚨 CRITICAL",
+    "high": "⚠️ HIGH",
+    "moderate": "🟡 MODERATE",
+    "low": "✅ LOW",
+}
+
+_SEVERITY_EMOJI = {
+    "critical": "🚨",
+    "high": "⚠️",
+    "moderate": "⚠️",
+    "low": "🌦️",
+}
+
 
 def _format_template(template: str, facts_dict: dict) -> str:
     """
     Fill the advice_template with actual weather values.
-    Uses Python str.format_map with a defaultdict-like fallback so
-    unknown keys are preserved as-is rather than raising KeyError.
+    Uses str.format_map with a SafeDict so unknown keys are preserved as-is.
     """
 
     class SafeDict(dict):
@@ -37,13 +51,11 @@ def _format_template(template: str, facts_dict: dict) -> str:
 
 def compose_answer_node(state: BotState) -> Dict:
     """
-    LangGraph node: compose the final response.
+    LangGraph node (utility/fallback): compose the final response deterministically.
 
-    - Reads policy_decision and weather_facts from state.
-    - Renders the primary SOP's advice_template with actual weather values.
-    - Appends secondary match information.
-    - Updates conversation_history with the assistant response.
-    - Returns final_answer.
+    Renders the standardized advisory format using template substitution.
+    Does NOT call the LLM. Used directly in unit tests and as a fallback
+    if generate_response_node fails.
     """
     decision = state.get("policy_decision")
     facts = state.get("weather_facts")
@@ -61,24 +73,64 @@ def compose_answer_node(state: BotState) -> Dict:
 
     primary = decision.primary
     facts_dict = facts.to_facts_dict()
+    emoji = _SEVERITY_EMOJI.get(primary.severity, "🌦️")
+    severity_label = _SEVERITY_LABEL.get(primary.severity, primary.severity.upper())
 
-    # Render primary advice
-    answer_parts = [
-        f"**📍 Location:** {location}\n",
-        _format_template(primary.advice_template.strip(), facts_dict),
+    # Render advice from template
+    recommendation = _format_template(primary.advice_template.strip(), facts_dict)
+
+    # Build conditions block (only non-None facts)
+    field_labels = {
+        "temperature_2m":            ("🌡️ Temperature",            "°C"),
+        "apparent_temperature":      ("🤔 Feels like",              "°C"),
+        "relative_humidity_2m":      ("💧 Humidity",                "%"),
+        "precipitation_probability": ("🌧️ Rain probability",        "%"),
+        "precipitation_sum_today":   ("🌧️ Today's rain total",      " mm"),
+        "wind_speed_10m":            ("💨 Wind speed",              " km/h"),
+        "wind_gusts_10m":            ("💨 Wind gusts",              " km/h"),
+        "uv_index":                  ("☀️ UV index",                ""),
+        "visibility":                ("👁️ Visibility",             " m"),
+        "weathercode":               ("🌩️ Weather code",            ""),
+    }
+    condition_lines = []
+    for field, (label, unit) in field_labels.items():
+        val = facts_dict.get(field)
+        if val is not None:
+            condition_lines.append(f"  • {label}: **{val}{unit}**")
+    conditions_block = "\n".join(condition_lines) if condition_lines else "  • (data not available)"
+
+    # Assemble standardized format
+    parts = [
+        f"{emoji} **Weather Advisory — {location}**",
+        "",
+        "**Recommendation**",
+        recommendation,
+        "",
+        "**Current Conditions**",
+        conditions_block,
+        "",
+        "**Severity**",
+        severity_label,
+        "",
+        "**Applicable SOP**",
+        f"`{primary.sop_id}` — {primary.sop_title}",
+        "",
+        "**Why this policy applies**",
+        f"Live conditions met the threshold defined in {primary.sop_id}: {', '.join(f'{k}={v}' for k, v in primary.matched_conditions.items())}.",
     ]
 
-    # Append secondary matches as informational footnotes
+    # Secondary matches footnote
     if decision.secondary_matches:
         secondary_ids = ", ".join(m.sop_id for m in decision.secondary_matches)
-        answer_parts.append(
-            f"\n\n---\n*Additional policies also triggered: {secondary_ids}. "
-            f"The primary response above reflects the highest-priority policy.*"
-        )
+        parts += [
+            "",
+            "---",
+            f"*Additional policies also triggered: {secondary_ids}. "
+            "The primary response above reflects the highest-priority policy.*",
+        ]
 
-    final_answer = "\n".join(answer_parts)
+    final_answer = "\n".join(parts)
 
-    # Update conversation history with assistant response
     updated_history = list(conversation_history) + [
         {"role": "assistant", "content": final_answer}
     ]

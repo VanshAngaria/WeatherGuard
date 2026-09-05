@@ -12,14 +12,14 @@ from app.policy.loader import load_sops
 
 
 def test_load_default_sops():
-    """All 11 SOPs load without error."""
+    """All 12 SOPs load without error."""
     sops = load_sops()
-    assert len(sops) == 11
+    assert len(sops) == 12
     ids = {s.id for s in sops}
     expected = {
         "SOP-001", "SOP-002", "SOP-004", "SOP-005",
         "SOP-007", "SOP-008", "SOP-008B", "SOP-010",
-        "SOP-012", "SOP-014", "SOP-019",
+        "SOP-012", "SOP-014", "SOP-015", "SOP-019",
     }
     assert ids == expected
 

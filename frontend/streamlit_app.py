@@ -103,7 +103,7 @@ if prompt := st.chat_input("Ask a weather-safety question…"):
                 answer = (
                     f"❌ **Unexpected Error**\n\n"
                     f"Something went wrong: {exc}\n\n"
-                    f"Please ensure your OPENAI_API_KEY is set in your `.env` file."
+                    f"Please ensure your `GEMINI_API_KEY` is set in your `.env` file."
                 )
         st.markdown(answer)
 
