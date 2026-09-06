@@ -23,10 +23,15 @@ def get_llm_client() -> genai.Client:
     if not api_key:
         try:
             import streamlit as st
-            if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
-                api_key = st.secrets["GEMINI_API_KEY"]
-                os.environ["GEMINI_API_KEY"] = api_key
-            elif hasattr(st, "session_state") and st.session_state.get("gemini_api_key"):
+            try:
+                if hasattr(st, "secrets") and bool(st.secrets) and "GEMINI_API_KEY" in st.secrets:
+                    api_key = st.secrets.get("GEMINI_API_KEY")
+                    if api_key:
+                        os.environ["GEMINI_API_KEY"] = api_key
+            except Exception:
+                pass
+
+            if not api_key and hasattr(st, "session_state") and st.session_state.get("gemini_api_key"):
                 api_key = st.session_state.get("gemini_api_key")
                 os.environ["GEMINI_API_KEY"] = api_key
         except Exception:

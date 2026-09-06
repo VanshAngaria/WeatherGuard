@@ -35,8 +35,10 @@ except ImportError:
 try:
     if hasattr(st, "secrets"):
         try:
-            if "GEMINI_API_KEY" in st.secrets:
-                os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
+            if bool(st.secrets) and "GEMINI_API_KEY" in st.secrets:
+                key_val = st.secrets.get("GEMINI_API_KEY")
+                if key_val:
+                    os.environ["GEMINI_API_KEY"] = key_val
         except Exception:
             pass
 except Exception:
@@ -58,166 +60,136 @@ html, body, [class*="css"] {
 }
 
 .block-container {
-    padding-top: 1.5rem;
+    padding-top: 1rem;
     padding-bottom: 2rem;
-    max-width: 880px;
+    max-width: 1080px;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
 }
 
-.header-card {
-    background: linear-gradient(135deg, #1a2035 0%, #1e2d4a 50%, #152038 100%);
-    border: 1px solid #2a3f6f;
-    border-radius: 12px;
-    padding: 1.6rem 2rem;
-    margin-bottom: 1.4rem;
-}
-
-.header-title {
-    font-size: 1.7rem;
-    font-weight: 700;
-    color: #e8eef8;
-    margin: 0 0 0.3rem 0;
-    letter-spacing: -0.3px;
-}
-
-.header-subtitle {
-    font-size: 0.95rem;
-    color: #7b9ec7;
-    margin: 0 0 0.6rem 0;
-    font-weight: 400;
-}
-
-.header-desc {
-    font-size: 0.85rem;
-    color: #5c7da8;
-    margin: 0;
-}
-
-.help-card {
+/* Unified Compact Guide Card */
+.compact-guide-card {
     background: #121829;
     border: 1px solid #233354;
     border-radius: 10px;
-    padding: 1rem 1.3rem;
-    margin-bottom: 1.3rem;
+    padding: 0.85rem 1.1rem;
+    margin-bottom: 0.9rem;
 }
 
-.help-header {
+.compact-header-row {
     display: flex;
     justify-content: space-between;
-    align-items: baseline;
+    align-items: center;
     flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-bottom: 0.8rem;
+    gap: 0.6rem;
     border-bottom: 1px solid #1c2740;
-    padding-bottom: 0.5rem;
+    padding-bottom: 0.55rem;
+    margin-bottom: 0.6rem;
 }
 
-.help-title {
-    font-size: 0.95rem;
+.compact-title-group {
+    display: flex;
+    align-items: baseline;
+    gap: 0.55rem;
+}
+
+.compact-title {
+    font-size: 1.05rem;
     font-weight: 700;
     color: #e2edfa;
     letter-spacing: -0.2px;
 }
 
-.help-subtitle {
+.compact-subtitle {
     font-size: 0.77rem;
     color: #799ec2;
-    font-style: italic;
 }
 
-.help-grid {
+.compact-activity-pills {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+
+.pills-label {
+    font-size: 0.73rem;
+    color: #5c7da8;
+    font-weight: 600;
+    margin-right: 2px;
+}
+
+.mini-pill {
+    background: #172136;
+    border: 1px solid #293a5c;
+    border-radius: 4px;
+    padding: 0.2rem 0.45rem;
+    font-size: 0.72rem;
+    color: #a8c4e0;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.compact-steps-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 0.5rem;
+    gap: 0.55rem;
 }
 
-@media (max-width: 768px) {
-    .help-grid {
+@media (max-width: 900px) {
+    .compact-steps-grid {
         grid-template-columns: repeat(2, 1fr);
     }
 }
 
-.help-chip {
-    background: #172136;
-    border: 1px solid #293a5c;
-    border-radius: 6px;
-    padding: 0.5rem 0.65rem;
-    font-size: 0.79rem;
-    color: #b0c9e8;
-    font-weight: 500;
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    transition: all 0.15s ease;
-}
-
-.help-chip:hover {
-    background: #202e4d;
-    border-color: #3b5380;
-    color: #ffffff;
-}
-
-.guide-steps-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 0.75rem;
-    margin-top: 0.5rem;
-}
-
-@media (max-width: 768px) {
-    .guide-steps-grid {
+@media (max-width: 550px) {
+    .compact-steps-grid {
         grid-template-columns: 1fr;
     }
 }
 
-.guide-step-box {
-    background: #141b2d;
-    border: 1px solid #233554;
-    border-radius: 8px;
-    padding: 0.8rem 0.95rem;
-    display: flex;
-    gap: 0.75rem;
-    align-items: flex-start;
+.compact-step-item {
+    background: #151d30;
+    border: 1px solid #21314d;
+    border-radius: 6px;
+    padding: 0.55rem 0.7rem;
 }
 
-.guide-step-badge {
+.compact-step-badge {
     background: #1e2c4a;
     border: 1px solid #36507c;
     color: #82b1ff;
-    border-radius: 6px;
-    padding: 2px 7px;
-    font-size: 0.7rem;
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 0.66rem;
     font-weight: 700;
-    white-space: nowrap;
-    margin-top: 2px;
+    display: inline-block;
+    margin-bottom: 3px;
 }
 
-.guide-step-content {
-    flex: 1;
-}
-
-.guide-step-title {
-    font-size: 0.84rem;
+.compact-step-name {
+    font-size: 0.78rem;
     font-weight: 600;
     color: #e0ecfb;
     margin-bottom: 2px;
 }
 
-.guide-step-desc {
-    font-size: 0.76rem;
-    color: #7b9dc2;
-    margin-bottom: 5px;
-    line-height: 1.3;
+.compact-step-desc {
+    font-size: 0.71rem;
+    color: #7292b7;
+    margin-bottom: 4px;
+    line-height: 1.25;
 }
 
-.guide-example {
-    font-size: 0.75rem;
+.compact-step-eg {
+    font-size: 0.69rem;
     color: #64b5f6;
-    background: #0f1626;
-    padding: 2px 6px;
-    border-radius: 4px;
-    display: inline-block;
-    margin: 1px 2px 1px 0;
+    background: #0d1424;
+    padding: 2px 5px;
+    border-radius: 3px;
     border: 1px solid #1a273f;
+    line-height: 1.2;
+    overflow-wrap: break-word;
 }
 
 .sidebar-pipeline {
@@ -444,79 +416,49 @@ with st.sidebar:
 """, unsafe_allow_html=True)
     st.caption("LLM handles conversational parsing; the deterministic engine governs all safety logic.")
 
-# Main content
+# Main content — Unified Compact Guide & Activities
 st.markdown("""
-<div class="header-card">
-  <p class="header-title">🌦️ Weather Advisory Support Bot</p>
-  <p class="header-subtitle">Policy-governed outdoor safety guidance grounded in verified live weather data.</p>
-  <p class="header-desc">Ask whether outdoor activities are safe under current atmospheric conditions. Every safety recommendation is strictly traceable to a verified Standard Operating Procedure (SOP).</p>
-</div>
-""", unsafe_allow_html=True)
-
-# Centered Supported Activities Card
-st.markdown("""
-<div class="help-card">
-  <div class="help-header">
-    <span class="help-title">💡 Supported Activities</span>
-    <span class="help-subtitle">Only activities with defined safety policies are evaluated.</span>
-  </div>
-  <div class="help-grid">
-    <div class="help-chip">🚴 <span>Cycling</span></div>
-    <div class="help-chip">🚶 <span>Walking</span></div>
-    <div class="help-chip">🏃 <span>Running</span></div>
-    <div class="help-chip">🚗 <span>Commuting</span></div>
-    <div class="help-chip">🛵 <span>Scooter / Motorbike</span></div>
-    <div class="help-chip">🧺 <span>Outdoor Recreation</span></div>
-    <div class="help-chip">👨‍👩‍👧 <span>Children Outdoors</span></div>
-    <div class="help-chip">👴 <span>Elderly Activities</span></div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
-# How to Use / Multi-Turn Guide Card
-st.markdown("""
-<div class="help-card">
-  <div class="help-header">
-    <span class="help-title">📖 How to Use WeatherGuard (Multi-Turn Step-by-Step Flow)</span>
-    <span class="help-subtitle">Context is seamlessly remembered across consecutive questions</span>
-  </div>
-  <div class="guide-steps-grid">
-    <div class="guide-step-box">
-      <div class="guide-step-badge">Prompt 1</div>
-      <div class="guide-step-content">
-        <div class="guide-step-title">Initial Query</div>
-        <div class="guide-step-desc">Ask about an activity + place, request weather guidance, or enter a city.</div>
-        <div class="guide-example">💬 <i>"Is it safe to ride in Mumbai?"</i></div>
-        <div class="guide-example">💬 <i>"Weather guidance of Zirakpur"</i></div>
-        <div class="guide-example">💬 <i>"Zirakpur"</i></div>
-      </div>
+<div class="compact-guide-card">
+  <div class="compact-header-row">
+    <div class="compact-title-group">
+      <span class="compact-title">🌦️ WeatherGuard Advisory</span>
+      <span class="compact-subtitle">Multi-Turn Conversational Safety Engine</span>
     </div>
-    <div class="guide-step-box">
-      <div class="guide-step-badge">Prompt 2</div>
-      <div class="guide-step-content">
-        <div class="guide-step-title">Time Follow-up</div>
-        <div class="guide-step-desc">Shift time window without having to re-enter the location or activity.</div>
-        <div class="guide-example">💬 <i>"What about this evening?"</i></div>
-        <div class="guide-example">💬 <i>"How about tomorrow morning?"</i></div>
-      </div>
+    <div class="compact-activity-pills">
+      <span class="pills-label">Supported:</span>
+      <span class="mini-pill">🚴 Cycling</span>
+      <span class="mini-pill">🚶 Walking</span>
+      <span class="mini-pill">🏃 Running</span>
+      <span class="mini-pill">🛵 Commuting</span>
+      <span class="mini-pill">🧺 Recreation</span>
+      <span class="mini-pill">👨‍👩‍👧 Children</span>
+      <span class="mini-pill">👴 Elderly</span>
     </div>
-    <div class="guide-step-box">
-      <div class="guide-step-badge">Prompt 3</div>
-      <div class="guide-step-content">
-        <div class="guide-step-title">Location Switch</div>
-        <div class="guide-step-desc">Check a different city while keeping your current activity and time.</div>
-        <div class="guide-example">💬 <i>"What about in Delhi?"</i></div>
-        <div class="guide-example">💬 <i>"Chandigarh"</i></div>
-      </div>
+  </div>
+  <div class="compact-steps-grid">
+    <div class="compact-step-item">
+      <div class="compact-step-badge">Prompt 1</div>
+      <div class="compact-step-name">Initial Query</div>
+      <div class="compact-step-desc">Activity + place or direct city</div>
+      <div class="compact-step-eg">💬 <i>"Is it safe to ride in Mumbai?"</i></div>
     </div>
-    <div class="guide-step-box">
-      <div class="guide-step-badge">Prompt 4</div>
-      <div class="guide-step-content">
-        <div class="guide-step-title">Activity Switch</div>
-        <div class="guide-step-desc">Evaluate a different activity for the current resolved location.</div>
-        <div class="guide-example">💬 <i>"What about walking?"</i></div>
-        <div class="guide-example">💬 <i>"Is it safe for children?"</i></div>
-      </div>
+    <div class="compact-step-item">
+      <div class="compact-step-badge">Prompt 2</div>
+      <div class="compact-step-name">Time Follow-up</div>
+      <div class="compact-step-desc">Shift time; retains city &amp; activity</div>
+      <div class="compact-step-eg">💬 <i>"What about this evening?"</i></div>
+    </div>
+    <div class="compact-step-item">
+      <div class="compact-step-badge">Prompt 3</div>
+      <div class="compact-step-name">Location Switch</div>
+      <div class="compact-step-desc">Switch city; keeps activity &amp; time</div>
+      <div class="compact-step-eg">💬 <i>"What about in Delhi?"</i></div>
+    </div>
+    <div class="compact-step-item">
+      <div class="compact-step-badge">Prompt 4</div>
+      <div class="compact-step-name">Activity Switch</div>
+      <div class="compact-step-desc">Switch activity for same location</div>
+      <div class="compact-step-eg">💬 <i>"What about walking?"</i></div>
     </div>
   </div>
 </div>
