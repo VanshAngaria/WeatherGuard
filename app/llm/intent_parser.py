@@ -86,6 +86,7 @@ The current message may contain only a partial change (e.g., only a new time, on
 Extract ONLY information present in the current message.
 Missing fields in the current message MUST be null (or empty list [] for activity_categories).
 Never invent missing values.
+Note: Place/city names may be provided in lowercase (e.g. "roorkee", "bhopal", "delhi"). Always extract the canonical capitalized place name (e.g. "Roorkee", "Bhopal", "Delhi").
 
 Respond with ONLY a valid JSON object — no markdown, no code fences, no prose.
 
@@ -94,7 +95,7 @@ Schema:
   "activity_categories": [],   // list from: outdoor_exercise, outdoor_recreation, travel, vulnerable_groups, water_activities, general. Empty [] if no activity in message.
   "mode": null,                // one of: running, cycling, walking, motorbike, scooter, car, bus, train, swimming, boating, null
   "group": null,               // one of: children, elderly, general_public, null
-  "location": null,            // city/place name as string if explicitly present in current message, or null
+  "location": null,            // city/place name as string if explicitly present in current message (e.g. "Roorkee", "Delhi"), or null
   "time_context": null,        // e.g. "this evening", "evening", "tomorrow morning", "tomorrow", "today", "current", or null if not mentioned
   "is_follow_up": false,       // true if message is a follow-up referring to previous conversation or provides a partial update
   "raw_activity": null         // short activity description if not a standard mode
@@ -142,7 +143,7 @@ def parse_intent(
 
     raw_json = None
     candidate_models = [model]
-    for m in ["gemini-3.5-flash", "gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"]:
+    for m in ["gemini-3.6-flash", "gemini-3.5-flash"]:
         if m not in candidate_models:
             candidate_models.append(m)
 
@@ -185,13 +186,59 @@ def parse_intent(
 
     try:
         parsed_dict = json.loads(raw_json)
-        return ParsedIntent.model_validate(parsed_dict)
+        parsed_intent = ParsedIntent.model_validate(parsed_dict)
+        # Post-process: If location was missed by LLM, check heuristic extractor
+        if not parsed_intent.location:
+            h_loc = _extract_heuristic_location(user_message)
+            if h_loc:
+                parsed_intent.location = h_loc
+        return parsed_intent
     except Exception as exc:
         logger.info("JSON parsing failed (%s); attempting heuristic parser fallback.", exc)
         fallback = _heuristic_parse_intent(user_message)
         if fallback:
             return fallback
         raise ValueError(f"Failed to parse Gemini JSON: {exc}\nRaw: {raw_json}") from exc
+
+
+_LOCATION_STOP_WORDS = {
+    "this", "today", "tomorrow", "this evening", "this morning", "this afternoon",
+    "evening", "morning", "afternoon", "night", "now", "walking", "cycling", "running",
+    "swimming", "boating", "scooter", "car", "bus", "train", "park", "picnic", "hike",
+    "child", "kid", "elderly", "senior", "me", "us", "it", "them", "the park", "right now",
+    "safe", "unsafe", "weather"
+}
+
+
+def _extract_heuristic_location(message: str) -> Optional[str]:
+    """Extract location from text regardless of letter casing."""
+    clean_msg = message.strip()
+
+    # Pattern 1: After prepositions (in, at, around, for, about)
+    m = re.search(
+        r'\b(?:in|at|around|for|about)\s+([a-zA-Z\s]+?)(?:\s+(?:today|tomorrow|this|now|morning|evening|afternoon|night|right now)|\?|$|\.)',
+        clean_msg,
+        re.IGNORECASE,
+    )
+    if m:
+        cand = m.group(1).strip()
+        if cand.lower().startswith("in "):
+            cand = cand[3:].strip()
+        if cand.lower() not in _LOCATION_STOP_WORDS and len(cand) > 1:
+            return cand.title()
+
+    # Pattern 2: Location follow ups ('what about roorkee', 'roorkee?')
+    m2 = re.search(
+        r'^(?:what about|how about|and|also)?\s*(?:in\s+)?([a-zA-Z\s]+?)(?:\s+(?:today|tomorrow|this|now|morning|evening|afternoon|night)|\?|$|\.)',
+        clean_msg,
+        re.IGNORECASE,
+    )
+    if m2:
+        cand = m2.group(1).strip()
+        if cand.lower() not in _LOCATION_STOP_WORDS and len(cand) > 1:
+            return cand.title()
+
+    return None
 
 
 def _heuristic_parse_intent(message: str) -> Optional[ParsedIntent]:
@@ -265,20 +312,7 @@ def _heuristic_parse_intent(message: str) -> Optional[ParsedIntent]:
     elif any(w in msg for w in ("right now", "currently", "current")):
         time_ctx = "current"
 
-    loc = None
-    loc_match = re.search(
-        r'\b(?:in|at|around|for|about)\s+([A-Z][a-zA-Z\s]+?)(?:\s+(?:today|tomorrow|this|now|morning|evening|afternoon|night)|\?|$)',
-        message,
-    )
-    if loc_match:
-        loc_candidate = loc_match.group(1).strip()
-        # Ensure candidate is not a temporal word
-        if loc_candidate.lower() not in {
-            "this", "today", "tomorrow", "this evening", "this morning",
-            "this afternoon", "evening", "morning", "afternoon", "night",
-            "now", "walking", "cycling", "running",
-        }:
-            loc = loc_candidate
+    loc = _extract_heuristic_location(message)
 
     is_follow_up = False
     if any(w in msg for w in ("what about", "how about", "also", "and", "then", "instead", "what of")):
@@ -299,3 +333,4 @@ def _heuristic_parse_intent(message: str) -> Optional[ParsedIntent]:
         is_follow_up=is_follow_up,
         raw_activity=mode,
     )
+
