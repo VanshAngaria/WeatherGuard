@@ -37,8 +37,9 @@ def resolve_policy_node(state: BotState) -> Dict:
     decision = resolve_policy(matches)
 
     logger.info(
-        "Policy resolved: primary=%s | secondary=%s | reason=%s",
+        "SELECTED SOP: %s (%s) | Secondary: %s | Reason: %s",
         decision.primary.sop_id,
+        decision.primary.sop_title,
         [m.sop_id for m in decision.secondary_matches],
         decision.resolution_reason,
     )

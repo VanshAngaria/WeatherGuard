@@ -35,11 +35,14 @@ def resolve_location_node(state: BotState) -> Dict:
         and existing_lat is not None
         and existing_lon is not None
         and existing_location
-        and location_text.strip().lower() in existing_location.lower()
+        and (
+            location_text.strip().lower() in existing_location.lower()
+            or existing_location.lower().startswith(location_text.strip().lower())
+        )
     ):
         logger.info(
-            "Location unchanged ('%s') — reusing cached coords (%.4f, %.4f).",
-            location_text, existing_lat, existing_lon,
+            "LOCATION RESOLUTION (cached): input='%s' -> resolved='%s' (%.4f, %.4f)",
+            location_text, existing_location, existing_lat, existing_lon,
         )
         return {}  # No changes needed
 
@@ -53,10 +56,14 @@ def resolve_location_node(state: BotState) -> Dict:
             "error_type": "location_failure",
         }
 
-    logger.info("Resolving location: '%s'", location_text)
+    logger.info("LOCATION RESOLUTION: resolving '%s' via geocoder", location_text)
 
     try:
         lat, lon, canonical = resolve_location(location_text)
+        logger.info(
+            "LOCATION RESOLUTION: input='%s' -> resolved='%s' (%.4f, %.4f)",
+            location_text, canonical, lat, lon,
+        )
     except GeocodingError as exc:
         logger.error("Geocoding failed: %s", exc)
         return {

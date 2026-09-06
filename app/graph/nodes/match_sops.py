@@ -57,5 +57,5 @@ def match_sops_node(state: BotState) -> Dict:
         group=group,
     )
 
-    logger.info("match_sops_node: %d SOPs matched.", len(matched))
+    logger.info("MATCHED SOP: %s", [m.sop_id for m in matched])
     return {"sop_matches": matched}

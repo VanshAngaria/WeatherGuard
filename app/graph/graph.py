@@ -146,6 +146,12 @@ def get_graph():
 
 def run_graph(user_message: str, thread_id: str = "default") -> str:
     """Run a single conversational turn through the state graph."""
+    answer, _ = run_graph_full(user_message=user_message, thread_id=thread_id)
+    return answer
+
+
+def run_graph_full(user_message: str, thread_id: str = "default") -> tuple[str, BotState]:
+    """Run a single conversational turn through the state graph, returning final answer and state."""
     graph = get_graph()
     config = {"configurable": {"thread_id": thread_id}}
 
@@ -155,4 +161,5 @@ def run_graph(user_message: str, thread_id: str = "default") -> str:
     }
 
     result = graph.invoke(input_state, config=config)
-    return result.get("final_answer", "I encountered an unexpected error.")
+    answer = result.get("final_answer", "I encountered an unexpected error.")
+    return answer, result

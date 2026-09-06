@@ -10,7 +10,7 @@ import logging
 from typing import Dict
 
 from app.graph.state import BotState
-from app.llm.intent_parser import parse_intent
+from app.llm.intent_parser import _heuristic_parse_intent, parse_intent
 from app.llm.normalizer import normalize_input
 
 logger = logging.getLogger(__name__)
@@ -34,14 +34,31 @@ def _is_likely_irrelevant(message: str) -> bool:
 def parse_intent_node(state: BotState) -> Dict:
     """
     Parse user message into structured intent and resolve against session state.
+    Implements field-level context merging:
+      - New value exists -> update field
+      - New value missing -> preserve previous context
     """
     user_message = state.get("user_message", "")
     conversation_history = state.get("conversation_history", [])
 
-    logger.info("parse_intent_node: message='%s'", user_message)
+    prev_intent = state.get("intent")
+    prev_location = state.get("location_text") or state.get("resolved_location")
+    prev_activity = state.get("activity")
+    prev_time = state.get("requested_time")
+    prev_mode = prev_intent.mode if prev_intent else None
+    prev_group = prev_intent.group if prev_intent else None
+    prev_categories = prev_intent.activity_categories if prev_intent else None
+    has_prior_context = bool(prev_location or prev_activity or prev_intent)
 
-    # Fast path for obvious out-of-domain queries
-    if _is_likely_irrelevant(user_message) and not state.get("intent"):
+    logger.info("=== CONTEXT RESOLUTION START ===")
+    logger.info("USER QUERY: '%s'", user_message)
+    logger.info(
+        "PREVIOUS CONTEXT: location='%s', activity='%s', time='%s'",
+        prev_location, prev_activity, prev_time,
+    )
+
+    # Fast path for obvious out-of-domain queries when no prior context exists
+    if _is_likely_irrelevant(user_message) and not has_prior_context:
         logger.info("Heuristic: likely irrelevant query — routing to scope_response.")
         updated_history = list(conversation_history) + [
             {"role": "user", "content": user_message}
@@ -59,102 +76,145 @@ def parse_intent_node(state: BotState) -> Dict:
     if interpreted_as:
         logger.info("Input normalized: '%s' → '%s'", user_message, normalized_message)
 
-    # Classify intent with Gemini
+    # Classify intent with Gemini (with heuristic fallback)
     try:
         intent = parse_intent(
             user_message=normalized_message,
             conversation_history=conversation_history,
         )
     except Exception as exc:
-        logger.error("Intent parsing failed: %s", exc)
-        return {
-            "error": f"Intent parsing failed: {exc}",
-            "error_type": "llm_failure",
-            "interpreted_as": interpreted_as,
-        }
+        logger.warning("Gemini parsing failed (%s); trying heuristic fallback.", exc)
+        intent = _heuristic_parse_intent(normalized_message)
+        if intent is None:
+            logger.error("Intent parsing completely failed: %s", exc)
+            return {
+                "error": f"Intent parsing failed: {exc}",
+                "error_type": "llm_failure",
+                "interpreted_as": interpreted_as,
+            }
 
-    # Handle empty/unrecognized intents as out of scope
-    scope_type = "relevant"
+    logger.info(
+        "PARSED NEW INTENT: loc=%s, cats=%s, mode=%s, time=%s, is_follow_up=%s",
+        intent.location, intent.activity_categories, intent.mode, intent.time_context, intent.is_follow_up,
+    )
+
+    # Handle empty/unrecognized intents when no context is available
     if (
         not intent.activity_categories
         and not intent.location
-        and not intent.is_follow_up
-        and not state.get("intent")
+        and not intent.time_context
+        and not has_prior_context
     ):
-        scope_type = "irrelevant"
-        logger.info("LLM returned empty intent with no prior context — treating as out-of-scope.")
+        logger.info("Empty intent with no prior context — treating as out-of-scope.")
         updated_history = list(conversation_history) + [
             {"role": "user", "content": user_message}
         ]
         return {
-            "scope_type": scope_type,
+            "scope_type": "irrelevant",
             "conversation_history": updated_history,
             "interpreted_as": interpreted_as,
             "error": None,
             "error_type": None,
         }
 
-    # Retain location and activity across conversation turns for follow-ups
-    prev_intent = state.get("intent")
+    # =========================================================================
+    # FIELD-LEVEL CONTEXT MERGING:
+    # 1. Location: new location replaces old; missing location preserves old.
+    # 2. Activity: new activity replaces old; missing activity preserves old.
+    # 3. Time: new time replaces old; missing time preserves old (or defaults to current).
+    # =========================================================================
 
-    if intent.is_follow_up:
-        logger.info("Follow-up query detected — merging previous session memory.")
-        if not intent.location:
-            intent.location = state.get("location_text") or state.get("resolved_location")
+    # 1. Location merging
+    location_changed = False
+    if intent.location and intent.location.strip():
+        merged_location = intent.location.strip()
+        if prev_location and merged_location.lower() != prev_location.lower():
+            location_changed = True
+    elif prev_location:
+        merged_location = prev_location
+    else:
+        merged_location = None
+    intent.location = merged_location
 
-        if not intent.activity_categories and prev_intent:
-            intent.activity_categories = prev_intent.activity_categories
-            if not intent.mode:
-                intent.mode = prev_intent.mode
-            if not intent.group:
-                intent.group = prev_intent.group
-
-    # When user provides only a location, retain the prior activity
-    if not intent.activity_categories and not intent.is_follow_up:
-        if prev_intent and prev_intent.activity_categories:
-            logger.info("Carrying over prior activity from session: %s", prev_intent.activity_categories)
-            intent.activity_categories = prev_intent.activity_categories
-            if not intent.mode:
-                intent.mode = prev_intent.mode
-            if not intent.group:
-                intent.group = prev_intent.group
-        else:
-            intent.activity_categories = ["general"]
-
-    # Ask for clarification if a follow-up specifies time without a known location
-    needs_clarification = False
-    if intent.is_follow_up and intent.time_context not in {"current", "today", None}:
-        resolved_location = (
-            intent.location
-            or state.get("location_text")
-            or state.get("resolved_location")
+    # 2. Activity merging
+    has_new_activity = bool(intent.activity_categories or intent.mode or intent.raw_activity)
+    if has_new_activity:
+        merged_activity = (
+            intent.mode
+            or intent.raw_activity
+            or (intent.activity_categories[0] if intent.activity_categories else None)
         )
-        if not resolved_location:
-            logger.info("Ambiguous follow-up without location — requesting clarification.")
-            needs_clarification = True
+        merged_categories = intent.activity_categories or ["general"]
+        merged_mode = intent.mode
+        merged_group = intent.group or prev_group
+        merged_raw_activity = intent.raw_activity or intent.mode
+    elif has_prior_context and (prev_activity or prev_categories):
+        merged_activity = prev_activity
+        merged_categories = (
+            prev_categories
+            or (["outdoor_exercise"] if prev_activity in ["walking", "cycling", "running"] else ["general"])
+        )
+        merged_mode = prev_mode or (
+            prev_activity if prev_activity in [
+                "walking", "cycling", "running", "car", "scooter", "swimming", "boating"
+            ] else None
+        )
+        merged_group = prev_group
+        merged_raw_activity = prev_intent.raw_activity if prev_intent else prev_activity
+    else:
+        merged_activity = None
+        merged_categories = ["general"]
+        merged_mode = None
+        merged_group = None
+        merged_raw_activity = None
 
-    # Assemble structured state fields
-    activity = (
-        intent.raw_activity
-        or intent.mode
-        or (intent.activity_categories[0] if intent.activity_categories else None)
+    intent.activity_categories = merged_categories
+    intent.mode = merged_mode
+    intent.group = merged_group
+    intent.raw_activity = merged_raw_activity
+
+    # 3. Time merging
+    if intent.time_context and intent.time_context.strip():
+        merged_time = intent.time_context.strip()
+    elif prev_time:
+        merged_time = prev_time
+    else:
+        merged_time = "current"
+    intent.time_context = merged_time
+
+    logger.info(
+        "MERGED CONTEXT: location='%s', activity='%s', time='%s'",
+        merged_location, merged_activity, merged_time,
     )
-    requested_time = intent.time_context
-    location_text = intent.location or state.get("location_text")
+    logger.info("=== CONTEXT RESOLUTION END ===")
+
+    # Clarification Check: if after merging we STILL have no location, ask for clarification
+    needs_clarification = False
+    if not merged_location:
+        logger.info("No location resolved from query or session memory — requesting clarification.")
+        needs_clarification = True
 
     updated_history = list(conversation_history) + [
         {"role": "user", "content": user_message}
     ]
 
-    return {
+    ret = {
         "intent": intent,
-        "activity": activity,
-        "requested_time": requested_time,
+        "activity": merged_activity or "general",
+        "requested_time": merged_time,
         "needs_clarification": needs_clarification,
-        "scope_type": scope_type,
+        "scope_type": "relevant",
         "interpreted_as": interpreted_as,
-        "location_text": location_text,
+        "location_text": merged_location,
         "conversation_history": updated_history,
         "error": None,
         "error_type": None,
     }
+
+    if location_changed:
+        ret["lat"] = None
+        ret["lon"] = None
+        ret["resolved_location"] = None
+
+    return ret
+

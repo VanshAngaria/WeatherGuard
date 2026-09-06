@@ -8,6 +8,17 @@ from pathlib import Path
 
 import streamlit as st
 
+# Page configuration - MUST be the first Streamlit command executed
+try:
+    st.set_page_config(
+        page_title="Weather Advisory Support Bot",
+        page_icon="🌦️",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
+except Exception:
+    pass
+
 # Ensure repository root is on sys.path
 _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
@@ -22,20 +33,16 @@ except ImportError:
 
 # Detect Gemini API key from Streamlit Cloud Secrets if available
 try:
-    if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
-        os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
+    if hasattr(st, "secrets"):
+        try:
+            if "GEMINI_API_KEY" in st.secrets:
+                os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
+        except Exception:
+            pass
 except Exception:
     pass
 
-from app.graph.graph import run_graph
-
-# Page configuration
-st.set_page_config(
-    page_title="Weather Advisory Support Bot",
-    page_icon="🌦️",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+from app.graph.graph import run_graph, run_graph_full
 
 # Custom Styling
 st.markdown("""
@@ -317,23 +324,6 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    # API key handling for seamless Streamlit Community Cloud deployment
-    api_key = os.environ.get("GEMINI_API_KEY") or st.session_state.get("gemini_api_key")
-    if not api_key:
-        st.markdown("#### 🔑 Gemini API Key")
-        user_key = st.text_input(
-            "API Key",
-            type="password",
-            placeholder="AIzaSy...",
-            help="Enter your Google Gemini API key to run queries.",
-        )
-        if user_key:
-            os.environ["GEMINI_API_KEY"] = user_key
-            st.session_state["gemini_api_key"] = user_key
-            st.rerun()
-        st.caption("Get a free key at [Google AI Studio](https://aistudio.google.com/apikey)")
-        st.markdown("---")
-
     st.markdown("#### Session Context")
     st.caption("Maintains contextual continuity across follow-up queries.")
 
@@ -462,7 +452,7 @@ if prompt_to_run:
     with st.chat_message("assistant"):
         with st.spinner("Analyzing live weather and safety policies…"):
             try:
-                answer = run_graph(
+                answer, res_state = run_graph_full(
                     user_message=prompt,
                     thread_id=st.session_state.thread_id,
                 )
@@ -470,47 +460,27 @@ if prompt_to_run:
                 answer = (
                     f"❌ **Service Notice**\n\n"
                     f"Could not complete evaluation: `{exc}`\n\n"
-                    f"Please verify that `GEMINI_API_KEY` is configured in Streamlit secrets, `.env`, or the sidebar."
+                    f"Please verify that `GEMINI_API_KEY` is configured in Streamlit secrets or `.env`."
                 )
+                res_state = {}
         st.markdown(answer)
 
     st.session_state.messages.append({"role": "assistant", "content": answer})
 
-    # Update session context for display
+    # Update session context for display directly from graph state
     _ctx = st.session_state.session_context
 
-    loc_match = re.search(r"(?:Weather Advisory\s*[—–-]+\s*|Current conditions in\s+)(.+?)(?:[\n\*]|\s*:\s*🌡️)", answer)
-    if loc_match:
-        raw_loc = loc_match.group(1).strip().rstrip("*")
-        if raw_loc and raw_loc not in {"your location", ""}:
-            _ctx["location"] = raw_loc
+    loc_val = res_state.get("resolved_location") or res_state.get("location_text")
+    if loc_val and loc_val not in {"your location", ""}:
+        _ctx["location"] = loc_val
 
-    _ACTIVITY_MAP = {
-        "cycl": "Cycling", "bike": "Cycling", "bicycl": "Cycling",
-        "walk": "Walking", "run": "Running", "jog": "Running",
-        "picnic": "Picnic", "park": "Park visit",
-        "scooter": "Scooter", "motorbike": "Motorbike",
-        "travel": "Travel / commute", "commut": "Travel / commute",
-        "hike": "Hiking", "trek": "Trekking",
-    }
-    prompt_lower = prompt.lower()
-    for kw, label in _ACTIVITY_MAP.items():
-        if kw in prompt_lower:
-            _ctx["activity"] = label
-            break
+    act_val = res_state.get("activity")
+    if act_val and act_val not in {"general", "this activity", ""}:
+        _ctx["activity"] = act_val.title()
 
-    _TIME_MAP = {
-        "evening": "This evening", "morning": "This morning",
-        "afternoon": "This afternoon", "night": "Tonight",
-        "tomorrow": "Tomorrow", "today": "Today", "now": "Now",
-    }
-    for kw, label in _TIME_MAP.items():
-        if kw in prompt_lower:
-            _ctx["time"] = label
-            break
-    else:
-        if not _ctx.get("time"):
-            _ctx["time"] = "Current"
+    time_val = res_state.get("requested_time")
+    if time_val:
+        _ctx["time"] = time_val.title()
 
     st.session_state.session_context = _ctx
     st.rerun()

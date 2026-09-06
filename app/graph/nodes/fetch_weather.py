@@ -26,6 +26,7 @@ def fetch_weather_node(state: BotState) -> Dict:
     """
     lat = state.get("lat")
     lon = state.get("lon")
+    requested_time = state.get("requested_time", "current")
 
     if lat is None or lon is None:
         return {
@@ -33,10 +34,16 @@ def fetch_weather_node(state: BotState) -> Dict:
             "error_type": "weather_failure",
         }
 
-    logger.info("Fetching weather for (%.4f, %.4f).", lat, lon)
+    logger.info("WEATHER REQUEST: lat=%.4f, lon=%.4f, requested_time='%s'", lat, lon, requested_time)
 
     try:
         facts = fetch_weather(lat, lon)
+        logger.info(
+            "WEATHER DATA RETRIEVED: temp=%.1f°C, precip_prob=%.1f%%, wind=%.1f km/h",
+            facts.temperature_2m or 0.0,
+            facts.precipitation_probability or 0.0,
+            facts.wind_speed_10m or 0.0,
+        )
     except WeatherFetchError as exc:
         logger.error("Weather fetch failed: %s", exc)
         return {
