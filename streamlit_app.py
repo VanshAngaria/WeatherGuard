@@ -156,6 +156,70 @@ html, body, [class*="css"] {
     color: #ffffff;
 }
 
+.guide-steps-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+@media (max-width: 768px) {
+    .guide-steps-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.guide-step-box {
+    background: #141b2d;
+    border: 1px solid #233554;
+    border-radius: 8px;
+    padding: 0.8rem 0.95rem;
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+}
+
+.guide-step-badge {
+    background: #1e2c4a;
+    border: 1px solid #36507c;
+    color: #82b1ff;
+    border-radius: 6px;
+    padding: 2px 7px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    white-space: nowrap;
+    margin-top: 2px;
+}
+
+.guide-step-content {
+    flex: 1;
+}
+
+.guide-step-title {
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: #e0ecfb;
+    margin-bottom: 2px;
+}
+
+.guide-step-desc {
+    font-size: 0.76rem;
+    color: #7b9dc2;
+    margin-bottom: 5px;
+    line-height: 1.3;
+}
+
+.guide-example {
+    font-size: 0.75rem;
+    color: #64b5f6;
+    background: #0f1626;
+    padding: 2px 6px;
+    border-radius: 4px;
+    display: inline-block;
+    margin: 1px 2px 1px 0;
+    border: 1px solid #1a273f;
+}
+
 .sidebar-pipeline {
     background: #111827;
     border: 1px solid #1e2d45;
@@ -409,18 +473,67 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# How to Use / Multi-Turn Guide Card
+st.markdown("""
+<div class="help-card">
+  <div class="help-header">
+    <span class="help-title">📖 How to Use WeatherGuard (Multi-Turn Step-by-Step Flow)</span>
+    <span class="help-subtitle">Context is seamlessly remembered across consecutive questions</span>
+  </div>
+  <div class="guide-steps-grid">
+    <div class="guide-step-box">
+      <div class="guide-step-badge">Prompt 1</div>
+      <div class="guide-step-content">
+        <div class="guide-step-title">Initial Query</div>
+        <div class="guide-step-desc">Ask about an activity + place, request weather guidance, or enter a city.</div>
+        <div class="guide-example">💬 <i>"Is it safe to ride in Mumbai?"</i></div>
+        <div class="guide-example">💬 <i>"Weather guidance of Zirakpur"</i></div>
+        <div class="guide-example">💬 <i>"Zirakpur"</i></div>
+      </div>
+    </div>
+    <div class="guide-step-box">
+      <div class="guide-step-badge">Prompt 2</div>
+      <div class="guide-step-content">
+        <div class="guide-step-title">Time Follow-up</div>
+        <div class="guide-step-desc">Shift time window without having to re-enter the location or activity.</div>
+        <div class="guide-example">💬 <i>"What about this evening?"</i></div>
+        <div class="guide-example">💬 <i>"How about tomorrow morning?"</i></div>
+      </div>
+    </div>
+    <div class="guide-step-box">
+      <div class="guide-step-badge">Prompt 3</div>
+      <div class="guide-step-content">
+        <div class="guide-step-title">Location Switch</div>
+        <div class="guide-step-desc">Check a different city while keeping your current activity and time.</div>
+        <div class="guide-example">💬 <i>"What about in Delhi?"</i></div>
+        <div class="guide-example">💬 <i>"Chandigarh"</i></div>
+      </div>
+    </div>
+    <div class="guide-step-box">
+      <div class="guide-step-badge">Prompt 4</div>
+      <div class="guide-step-content">
+        <div class="guide-step-title">Activity Switch</div>
+        <div class="guide-step-desc">Evaluate a different activity for the current resolved location.</div>
+        <div class="guide-example">💬 <i>"What about walking?"</i></div>
+        <div class="guide-example">💬 <i>"Is it safe for children?"</i></div>
+      </div>
+    </div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
 # Example queries
 EXAMPLES = [
-    ("🚴", "Cycling", "Is it safe to cycle in Bhopal today?"),
-    ("🚶", "Walking", "Is it okay to walk in Roorkee right now?"),
-    ("👨‍👩‍👧", "Children", "Can I take my child to the park in Delhi this afternoon?"),
-    ("🚗", "Travel", "Should I travel by two-wheeler in Jaipur today?"),
-    ("🧺", "Picnic", "Is today a good day for a picnic in Chandigarh?"),
-    ("🌅", "Follow-up", "What about this evening?"),
+    ("🛵", "Ride / Scooter", "Is it safe to ride in Mumbai?"),
+    ("🌦️", "Weather Guidance", "Weather guidance of Zirakpur"),
+    ("📍", "Direct Location", "Zirakpur"),
+    ("🌅", "Time Follow-up", "What about this evening?"),
+    ("🚶", "Activity Follow-up", "What about walking?"),
+    ("📍", "Location Follow-up", "What about in Delhi?"),
 ]
 
 if not st.session_state.messages:
-    st.markdown('<div class="examples-header">Example Inquiries</div>', unsafe_allow_html=True)
+    st.markdown('<div class="examples-header">💡 Try Quick Inquiries</div>', unsafe_allow_html=True)
     cols = st.columns(3)
     for i, (emoji, label, prompt) in enumerate(EXAMPLES):
         col = cols[i % 3]

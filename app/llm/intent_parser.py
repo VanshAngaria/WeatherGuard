@@ -225,7 +225,7 @@ def _extract_heuristic_location(message: str) -> Optional[str]:
     # Pattern 1: Location after prepositions (outside of, in, at, of, around, for, about, to, near)
     prep_patterns = [
         r'\b(?:outside\s+of|outside\s+in|outside|in|at|around|for|about|of|to|near)\s+([a-zA-Z\s,]+?)(?:\s+(?:today|tomorrow|this|now|morning|evening|afternoon|night|tonight|right now)|\?|$|\.)',
-        r'\b(?:weather\s+of|weather\s+in|weather\s+for|forecast\s+for|forecast\s+of|forecast\s+in|temp\s+of|temp\s+in|temperature\s+of|temperature\s+in)\s+([a-zA-Z\s,]+?)(?:\s+(?:today|tomorrow|this|now|morning|evening|afternoon|night|tonight|right now)|\?|$|\.)',
+        r'\b(?:weather\s+guidance\s+of|weather\s+guidance\s+for|guidance\s+for|guidance\s+of|weather\s+of|weather\s+in|weather\s+for|forecast\s+for|forecast\s+of|forecast\s+in|temp\s+of|temp\s+in|temperature\s+of|temperature\s+in)\s+([a-zA-Z\s,]+?)(?:\s+(?:today|tomorrow|this|now|morning|evening|afternoon|night|tonight|right now)|\?|$|\.)',
     ]
 
     for pat in prep_patterns:
@@ -235,7 +235,7 @@ def _extract_heuristic_location(message: str) -> Optional[str]:
             cand = m.group(1).strip()
             # Clean leading noise / auxiliary words
             cand = re.sub(
-                r'^(?:\b(?:in|at|of|to|around|for|about|the|outside\s+of|outside\s+in|outside|go\s+outside\s+of|go\s+outside\s+in|go\s+outside|go\s+to)\b\s*)+',
+                r'^(?:\b(?:in|at|of|to|around|for|about|the|outside\s+of|outside\s+in|outside|go\s+outside\s+of|go\s+outside\s+in|go\s+outside|go\s+to|guidance\s+of|weather\s+guidance\s+of)\b\s*)+',
                 '',
                 cand,
                 flags=re.IGNORECASE,
@@ -315,7 +315,7 @@ def _heuristic_parse_intent(message: str) -> Optional[ParsedIntent]:
     elif any(w in msg for w in ("boat", "kayak")):
         cats.append("water_activities")
         mode = "boating"
-    elif any(w in msg for w in ("scooter", "motorbike", "two wheeler", "two-wheeler")):
+    elif any(w in msg for w in ("scooter", "motorbike", "two wheeler", "two-wheeler", "ride", "riding")):
         cats.append("travel")
         mode = "scooter"
     elif any(w in msg for w in ("drive", "car", "commute", "travel")):

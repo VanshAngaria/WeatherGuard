@@ -66,6 +66,17 @@ This system solves that by enforcing strict architectural separation:
 - **Adaptive Fallback**: If the LLM service hits quota limits, the system seamlessly falls back to template-based rendering and heuristic intent parsing.
 - **Streamlit UI**: Dark mode UI with pipeline visualizer, active session state card, and activity shortcuts.
 
+## 📖 How to Use WeatherGuard (Multi-Turn Step-by-Step Flow)
+
+WeatherGuard maintains conversational memory across consecutive prompts:
+
+| Step | Prompt Purpose | Example Prompts | What Happens |
+|---|---|---|---|
+| **Prompt 1** | **Initial Query** | • `"Is it safe to ride in Mumbai?"`<br>• `"Weather guidance of Zirakpur"`<br>• `"Zirakpur"` *(direct city)* | Extracted activity, city coordinates, live weather & SOP evaluation |
+| **Prompt 2** | **Time Follow-up** | • `"What about this evening?"`<br>• `"How about tomorrow morning?"`<br>• `"Tonight"` | Updates forecast target time without losing city or activity |
+| **Prompt 3** | **Location Switch** | • `"What about in Delhi?"`<br>• `"Chandigarh"`<br>• `"London, UK"` | Switches coordinates and fetches live weather for the new city |
+| **Prompt 4** | **Activity Switch** | • `"What about walking?"`<br>• `"Is it safe for children?"`<br>• `"Can I go swimming?"` | Re-evaluates safety policies for the new activity at the same location |
+
 ---
 
 ## 📁 Repository Structure
