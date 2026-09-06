@@ -166,15 +166,18 @@ def generate_response_node(state: BotState) -> Dict:
     try:
         client = get_llm_client()
         model = get_model_name()
+        cfg_kwargs = {
+            "response_mime_type": "application/json",
+            "temperature": 0.2,
+            "max_output_tokens": 2048,
+        }
+        if "lite" not in model:
+            cfg_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+
         response = client.models.generate_content(
             model=model,
             contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=0.2,
-                max_output_tokens=2048,
-                thinking_config=types.ThinkingConfig(thinking_budget=0),
-            ),
+            config=types.GenerateContentConfig(**cfg_kwargs),
         )
         raw = response.text.strip()
         if raw.startswith("```"):

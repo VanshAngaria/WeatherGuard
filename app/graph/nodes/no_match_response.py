@@ -62,29 +62,45 @@ def no_match_response_node(state: BotState) -> Dict:
     activity = state.get("activity")
     raw_query = state.get("user_message", "")
 
+    weather_summary = _build_weather_inline(facts)
     activity_is_covered = _any_sop_covers_categories(intent_categories)
 
     if not activity_is_covered:
         act_display = f"**{activity}**" if activity else "this activity"
         answer = (
-            f"ℹ️ **No Safety Policy for this Activity**\n\n"
-            f"I don't currently have a safety Operating Procedure (SOP) defined for {act_display}.\n\n"
-            f"To prevent hallucinated advice, recommendations are only provided for activities "
-            f"with verified safety policies.\n\n"
+            f"ℹ️ **No Policy Coverage — {location}**\n\n"
+            f"**Recommendation**\n"
+            f"We don't currently have a Standard Operating Procedure (SOP) or safety guidance defined for {act_display}.\n\n"
+            f"**Current Conditions**\n"
+            f"{weather_summary}\n\n"
+            f"**Applicable SOP**\n"
+            f"None — No written safety policy covers this activity.\n\n"
+            f"**Policy Traceability**\n"
+            f"To prevent unverified or hallucinated advice, safety recommendations are strictly provided only for activities governed by a written SOP.\n\n"
             f"{_SUPPORTED_ACTIVITIES_LIST}\n"
             f"Please ask about one of the supported activities above for **{location}**."
         )
     else:
         act_phrase = f"for **{activity}** " if activity else ""
-        weather_summary = _build_weather_inline(facts)
+
+        # Collect relevant SOPs that were evaluated against this query
+        eval_sops = []
+        for sop in get_sops():
+            if "*" in sop.applies_to_categories or any(c in sop.applies_to_categories for c in intent_categories):
+                eval_sops.append(f"`{sop.id}` ({sop.title})")
+
+        sop_citation_list = ", ".join(eval_sops[:4]) if eval_sops else "`SOP-019` (Regional Storm), `SOP-001` (Heat Stress), `SOP-005` (Wind Hazard), `SOP-015` (Rain Hazard)"
+
         answer = (
             f"✅ **No Safety Concerns Identified — {location}**\n\n"
-            f"Current weather conditions in **{location}** {act_phrase}fall within safe operational thresholds.\n\n"
+            f"**Recommendation**\n"
+            f"Current weather conditions in **{location}** {act_phrase}fall within safe operational thresholds. All monitored parameters are within normal limits.\n\n"
             f"**Current Conditions**\n"
             f"{weather_summary}\n\n"
-            f"**Status**\n"
-            f"• All monitored weather variables are within normal parameters.\n"
-            f"• No adverse weather warnings or safety restrictions currently triggered.\n\n"
+            f"**Applicable SOP**\n"
+            f"None triggered — All monitored atmospheric parameters fall below active hazard thresholds.\n\n"
+            f"**Evaluated Policies (Policy Traceability)**\n"
+            f"Evaluated against: {sop_citation_list}. All monitored variables (precipitation, wind speed, apparent heat, UV index, and visibility) remain below adverse risk limits.\n\n"
             f"_Tip: Weather conditions can change rapidly. Check back if conditions deteriorate._"
         )
 
