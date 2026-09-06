@@ -12,6 +12,15 @@ This system solves that by enforcing strict architectural separation:
 
 ---
 
+## 🖼️ User Interface & Application Screenshots
+
+| Conversational Advisory & Weather Metrics | Sidebar Active State & System Pipeline |
+| :---: | :---: |
+| ![WeatherGuard Advisory View](assets/demo_screenshot_1.png) | ![WeatherGuard Sidebar & Pipeline](assets/demo_screenshot_2.png) |
+
+---
+
+
 ## 🏛️ Architecture
 
 ```
@@ -99,8 +108,8 @@ weather-advisory-support-bot/
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/your-username/weather-advisory-support-bot.git
-cd weather-advisory-support-bot
+git clone https://github.com/VanshAngaria/WeatherGuard.git
+cd WeatherGuard
 ```
 
 ### 2. Create and activate a virtual environment
