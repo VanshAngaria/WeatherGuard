@@ -112,6 +112,10 @@ RULES:
 
 Examples:
 "Is it safe to cycle in Bhopal today?" → {"activity_categories":["outdoor_exercise","travel"],"mode":"cycling","group":null,"location":"Bhopal","time_context":"today","is_follow_up":false,"raw_activity":"cycling"}
+"weather of zirakpur" → {"activity_categories":[],"mode":null,"group":null,"location":"Zirakpur","time_context":"current","is_follow_up":false,"raw_activity":null}
+"weather of mumbai" → {"activity_categories":[],"mode":null,"group":null,"location":"Mumbai","time_context":"current","is_follow_up":false,"raw_activity":null}
+"is it safe to go outside of mumbai" → {"activity_categories":["outdoor_exercise","travel"],"mode":"walking","group":null,"location":"Mumbai","time_context":"current","is_follow_up":false,"raw_activity":"outside"}
+"mumbai" → {"activity_categories":[],"mode":null,"group":null,"location":"Mumbai","time_context":null,"is_follow_up":true,"raw_activity":null}
 "What about this evening?" → {"activity_categories":[],"mode":null,"group":null,"location":null,"time_context":"this evening","is_follow_up":true,"raw_activity":null}
 "What about Delhi?" → {"activity_categories":[],"mode":null,"group":null,"location":"Delhi","time_context":null,"is_follow_up":true,"raw_activity":null}
 "What about walking?" → {"activity_categories":["outdoor_exercise"],"mode":"walking","group":null,"location":null,"time_context":null,"is_follow_up":true,"raw_activity":"walking"}
@@ -202,40 +206,101 @@ def parse_intent(
 
 
 _LOCATION_STOP_WORDS = {
-    "this", "today", "tomorrow", "this evening", "this morning", "this afternoon",
-    "evening", "morning", "afternoon", "night", "now", "walking", "cycling", "running",
-    "swimming", "boating", "scooter", "car", "bus", "train", "park", "picnic", "hike",
-    "child", "kid", "elderly", "senior", "me", "us", "it", "them", "the park", "right now",
-    "safe", "unsafe", "weather"
+    "this", "today", "tomorrow", "this evening", "this morning", "this afternoon", "tonight",
+    "evening", "morning", "afternoon", "night", "now", "later", "right now",
+    "walking", "walk", "cycling", "cycle", "running", "run", "jogging", "jog",
+    "swimming", "swim", "boating", "boat", "scooter", "car", "bus", "train", "drive", "driving",
+    "park", "picnic", "hike", "hiking", "travel", "traveling", "commute", "commuting",
+    "child", "children", "kid", "kids", "elderly", "senior", "seniors", "baby", "toddler",
+    "me", "us", "it", "them", "everyone", "someone", "the park",
+    "safe", "unsafe", "weather", "outside", "inside", "go outside", "go out", "go", "out",
+    "good", "bad", "rain", "rainy", "hot", "cold", "sunny", "windy", "storm",
+    "forecast", "temperature", "temp", "condition", "conditions", "general",
+    "yes", "no", "ok", "okay", "thanks", "thank you", "help", "hi", "hello", "hey",
+    "morrow", "day", "week", "month", "year", "hour", "minute", "time", "alert", "warning",
+    "update", "current", "live", "status", "info", "information", "details", "check",
+    "is it safe", "can i go", "should i go", "what is the",
+}
+
+_ACTIVITY_WORDS = {
+    "walk", "walking", "cycle", "cycling", "bike", "biking", "run", "running", "jog", "jogging",
+    "swim", "swimming", "boat", "boating", "drive", "driving", "travel", "traveling",
+    "park", "picnic", "hike", "hiking", "commute", "commuting", "outside", "inside",
+    "scooter", "car", "bus", "train", "go", "go out", "go outside",
 }
 
 
 def _extract_heuristic_location(message: str) -> Optional[str]:
-    """Extract location from text regardless of letter casing."""
+    """Extract location from text supporting prepositions, follow-ups, and phrasing variations."""
     clean_msg = message.strip()
 
-    # Pattern 1: After prepositions (in, at, around, for, about)
-    m = re.search(
-        r'\b(?:in|at|around|for|about)\s+([a-zA-Z\s]+?)(?:\s+(?:today|tomorrow|this|now|morning|evening|afternoon|night|right now)|\?|$|\.)',
+    # Pattern 1: Location after prepositions (outside of, in, at, of, around, for, about, to, near)
+    prep_patterns = [
+        r'\b(?:outside\s+of|outside\s+in|outside|in|at|around|for|about|of|to|near)\s+([a-zA-Z\s,]+?)(?:\s+(?:today|tomorrow|this|now|morning|evening|afternoon|night|tonight|right now)|\?|$|\.)',
+        r'\b(?:weather\s+of|weather\s+in|weather\s+for|forecast\s+for|forecast\s+of|forecast\s+in|temp\s+of|temp\s+in|temperature\s+of|temperature\s+in)\s+([a-zA-Z\s,]+?)(?:\s+(?:today|tomorrow|this|now|morning|evening|afternoon|night|tonight|right now)|\?|$|\.)',
+    ]
+
+    for pat in prep_patterns:
+        matches = list(re.finditer(pat, clean_msg, re.IGNORECASE))
+        # Iterate in reverse: rightmost preposition usually precedes the location in complex sentences
+        for m in reversed(matches):
+            cand = m.group(1).strip()
+            # Clean leading noise / auxiliary words
+            cand = re.sub(
+                r'^(?:\b(?:in|at|of|to|around|for|about|the|outside\s+of|outside\s+in|outside|go\s+outside\s+of|go\s+outside\s+in|go\s+outside|go\s+to)\b\s*)+',
+                '',
+                cand,
+                flags=re.IGNORECASE,
+            ).strip()
+
+            # If candidate contains sub-prepositions like 'outside of mumbai'
+            sub_m = re.search(r'\b(?:in|at|of|around|near|to)\s+([a-zA-Z\s,]+)$', cand, re.IGNORECASE)
+            if sub_m:
+                sub_cand = sub_m.group(1).strip()
+                if sub_cand.lower() not in _LOCATION_STOP_WORDS and len(sub_cand) > 1:
+                    cand = sub_cand
+
+            words = cand.lower().split()
+            if (
+                cand.lower() not in _LOCATION_STOP_WORDS
+                and len(cand) > 1
+                and not all(w in _LOCATION_STOP_WORDS or w in _ACTIVITY_WORDS for w in words)
+                and not any(w in {"child", "children", "elderly", "senior", "walking", "cycling", "running"} for w in words)
+            ):
+                return cand.title()
+
+    # Pattern 2: Suffix format (e.g. 'mumbai weather', 'zirakpur forecast', 'delhi rain')
+    m_suf = re.search(
+        r'^\s*([a-zA-Z\s,]+?)\s+(?:weather|forecast|temp|temperature|conditions?|climate|rain)\b',
         clean_msg,
         re.IGNORECASE,
     )
-    if m:
-        cand = m.group(1).strip()
-        if cand.lower().startswith("in "):
-            cand = cand[3:].strip()
-        if cand.lower() not in _LOCATION_STOP_WORDS and len(cand) > 1:
+    if m_suf:
+        cand = m_suf.group(1).strip()
+        words = cand.lower().split()
+        if (
+            cand.lower() not in _LOCATION_STOP_WORDS
+            and len(cand) > 1
+            and not any(w in _LOCATION_STOP_WORDS for w in words)
+        ):
             return cand.title()
 
-    # Pattern 2: Location follow ups ('what about roorkee', 'roorkee?')
+    # Pattern 3: Standalone location or simple follow-up (e.g. 'Mumbai', 'What about Delhi?', 'Roorkee, India')
     m2 = re.search(
-        r'^(?:what about|how about|and|also)?\s*(?:in\s+)?([a-zA-Z\s]+?)(?:\s+(?:today|tomorrow|this|now|morning|evening|afternoon|night)|\?|$|\.)',
+        r'^(?:what about|how about|and|also)?\s*(?:\b(?:in|at|of|to|the)\b\s+)?([a-zA-Z\s,]+?)(?:\s+(?:today|tomorrow|this|now|morning|evening|afternoon|night|tonight|right now)|\?|$|\.)',
         clean_msg,
         re.IGNORECASE,
     )
     if m2:
         cand = m2.group(1).strip()
-        if cand.lower() not in _LOCATION_STOP_WORDS and len(cand) > 1:
+        cand = re.sub(r'^(?:\b(?:in|at|of|to|around|for|about|the)\b\s+)+', '', cand, flags=re.IGNORECASE).strip()
+        words = cand.lower().split()
+        if (
+            len(words) <= 4
+            and cand.lower() not in _LOCATION_STOP_WORDS
+            and len(cand) > 1
+            and not any(w in _LOCATION_STOP_WORDS or w in _ACTIVITY_WORDS for w in words)
+        ):
             return cand.title()
 
     return None
@@ -270,6 +335,9 @@ def _heuristic_parse_intent(message: str) -> Optional[ParsedIntent]:
         mode = "car"
     elif any(w in msg for w in ("park", "picnic", "hike")):
         cats.append("outdoor_recreation")
+        mode = "walking"
+    elif any(w in msg for w in ("outside", "outdoors", "go out")):
+        cats.append("outdoor_exercise")
         mode = "walking"
 
     group = None

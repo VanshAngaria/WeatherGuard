@@ -50,6 +50,20 @@ def test_heuristic_parser_partial_intents():
     assert "outdoor_exercise" in p4.activity_categories
     assert p4.mode == "walking"
 
+    # Location phrasing variations ('weather of X', 'outside of X', 'is it safe in X')
+    p_zir = _heuristic_parse_intent("weather of zirakpur")
+    assert p_zir is not None
+    assert p_zir.location == "Zirakpur"
+
+    p_mum = _heuristic_parse_intent("weather of mumbai")
+    assert p_mum is not None
+    assert p_mum.location == "Mumbai"
+
+    p_out = _heuristic_parse_intent("is it safe to go outside of mumbai")
+    assert p_out is not None
+    assert p_out.location == "Mumbai"
+    assert "outdoor_exercise" in p_out.activity_categories
+
     # Truly unrecognized
     p5 = _heuristic_parse_intent("hello there")
     assert p5 is None
