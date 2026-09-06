@@ -59,12 +59,16 @@ html, body, [class*="css"] {
     background-color: #0f1117;
 }
 
+header[data-testid="stHeader"] {
+    background: transparent !important;
+}
+
 .block-container {
-    padding-top: 1rem;
-    padding-bottom: 2rem;
-    max-width: 1080px;
-    padding-left: 1.5rem;
-    padding-right: 1.5rem;
+    padding-top: 4.2rem !important;
+    padding-bottom: 2rem !important;
+    max-width: 1080px !important;
+    padding-left: 1.5rem !important;
+    padding-right: 1.5rem !important;
 }
 
 /* Unified Compact Guide Card */
