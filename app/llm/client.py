@@ -45,5 +45,5 @@ def get_llm_client() -> genai.Client:
 
 
 def get_model_name() -> str:
-    """Return configured Gemini model name (default: gemini-3.5-flash)."""
-    return os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
+    """Return configured Gemini model name (default: gemini-3.5-flash-lite)."""
+    return os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
