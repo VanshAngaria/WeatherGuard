@@ -45,7 +45,8 @@ class WeatherFacts(BaseModel):
     uv_index: Optional[float] = None
     precipitation_sum_today: Optional[float] = None
     precipitation_sum_next_2d: Optional[float] = None
+    time_label: Optional[str] = "Current Conditions"
 
     def to_facts_dict(self) -> dict:
         """Return a flat dict suitable for the policy evaluator."""
-        return {k: v for k, v in self.model_dump().items()}
+        return {k: v for k, v in self.model_dump().items() if k != "time_label"}

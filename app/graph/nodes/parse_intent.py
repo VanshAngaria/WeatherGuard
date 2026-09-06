@@ -182,6 +182,7 @@ def parse_intent_node(state: BotState) -> Dict:
 
     ret = {
         "intent": intent,
+        "intent_categories": merged_categories,
         "activity": merged_activity or "general",
         "requested_time": merged_time,
         "needs_clarification": needs_clarification,

@@ -37,7 +37,7 @@ def fetch_weather_node(state: BotState) -> Dict:
     logger.info("WEATHER REQUEST: lat=%.4f, lon=%.4f, requested_time='%s'", lat, lon, requested_time)
 
     try:
-        facts = fetch_weather(lat, lon)
+        facts = fetch_weather(lat, lon, requested_time=requested_time)
         logger.info(
             "WEATHER DATA RETRIEVED: temp=%.1f°C, precip_prob=%.1f%%, wind=%.1f km/h",
             facts.temperature_2m or 0.0,

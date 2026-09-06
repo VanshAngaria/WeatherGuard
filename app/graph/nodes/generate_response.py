@@ -62,22 +62,26 @@ def _build_structured_response(
     recommendation: str,
     why: str,
     conditions_block: str,
+    time_label: str = "Current Conditions",
+    activity: Optional[str] = None,
     secondary_ids: Optional[str] = None,
 ) -> str:
     """Format the standardized user-facing advisory report."""
     emoji = _SEVERITY_EMOJI.get(severity, "🌦️")
     severity_label = _SEVERITY_LABEL.get(severity, severity.upper())
+    subtitle = f"_{activity.title()} · {time_label}_" if activity and activity != "general" else f"_{time_label}_"
 
     parts = [
         f"{emoji} **Weather Advisory — {location}**",
+        subtitle,
         "",
         "**Recommendation**",
         recommendation.strip(),
         "",
-        "**Current Conditions**",
+        f"**{time_label}**",
         conditions_block,
         "",
-        f"**Severity**",
+        "**Severity**",
         severity_label,
         "",
         "**Applicable SOP**",
@@ -98,7 +102,7 @@ def _build_structured_response(
     return "\n".join(parts)
 
 
-_PROMPT_TEMPLATE = """You are composing the final user-facing response for a weather safety advisory.
+_PROMPT_TEMPLATE = """You are composing the final user-facing response for a weather safety advisory assistant.
 
 You have been given VERIFIED, FACTUAL inputs. You MUST NOT:
 - Change the severity level
@@ -108,17 +112,23 @@ You have been given VERIFIED, FACTUAL inputs. You MUST NOT:
 - Add thresholds not present in the SOP
 
 Your task: Write two short paragraphs in clear, conversational English:
-1. "recommendation" — what the user should do or avoid (based on the SOP advice below)
-2. "why" — a short explanation of why this SOP applies to the current conditions
+1. "recommendation" — directly and conversationally answer the user's question (for example, if they ask "Is it safe?" or "Can I go?", lead directly with a clear verdict: "No, cycling is not recommended this evening due to..." or "Yes, it is safe to proceed..."). Acknowledge the conversation naturally without repeating identical boilerplate sentences from earlier turns.
+2. "why" — a short explanation of why this SOP applies to the live atmospheric conditions.
 
-Inputs:
+User Query: "{user_query}"
+
+Recent Dialogue Context:
+{conversation_context}
+
+Factual Inputs:
 {inputs_json}
 
 Respond with ONLY a JSON object:
 {{"recommendation": "...", "why": "..."}}
 
-Keep each paragraph to 2-3 sentences. Be direct. Lead with the safety verdict for HIGH/CRITICAL severity.
+Keep each paragraph to 2-3 sentences. Be direct and conversational. Lead with the safety verdict for HIGH/CRITICAL severity.
 """
+
 
 
 def generate_response_node(state: BotState) -> Dict:
@@ -140,6 +150,7 @@ def generate_response_node(state: BotState) -> Dict:
         }
 
     primary = decision.primary
+    time_label = getattr(facts, "time_label", None) or "Current Conditions"
     conditions_block = _build_conditions_block(facts)
     secondary_ids = (
         ", ".join(m.sop_id for m in decision.secondary_matches)
@@ -150,7 +161,7 @@ def generate_response_node(state: BotState) -> Dict:
     llm_inputs = {
         "location": location,
         "activity": activity,
-        "requested_time": requested_time,
+        "time_context": time_label,
         "sop_id": primary.sop_id,
         "sop_title": primary.sop_title,
         "severity": primary.severity,
@@ -159,7 +170,20 @@ def generate_response_node(state: BotState) -> Dict:
         "weather_facts": facts_dict,
     }
 
-    prompt = _PROMPT_TEMPLATE.format(inputs_json=json.dumps(llm_inputs, indent=2))
+    user_query = state.get("user_message", "")
+    history_snippets = []
+    for h in conversation_history[-4:]:
+        role = h.get("role", "user").capitalize()
+        # truncate content snippet
+        content = h.get("content", "")[:250].replace("\n", " ")
+        history_snippets.append(f"{role}: {content}")
+    conversation_context = "\n".join(history_snippets) if history_snippets else "(New conversation session)"
+
+    prompt = _PROMPT_TEMPLATE.format(
+        user_query=user_query,
+        conversation_context=conversation_context,
+        inputs_json=json.dumps(llm_inputs, indent=2),
+    )
     recommendation = ""
     why = ""
 
@@ -200,8 +224,11 @@ def generate_response_node(state: BotState) -> Dict:
         recommendation=recommendation,
         why=why,
         conditions_block=conditions_block,
+        time_label=time_label,
+        activity=activity,
         secondary_ids=secondary_ids,
     )
+
 
     interpreted_as = state.get("interpreted_as")
     if interpreted_as:
