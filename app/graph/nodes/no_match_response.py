@@ -111,28 +111,59 @@ def no_match_response_node(state: BotState) -> Dict:
     real_cats = [c for c in intent_categories if c != "general"]
     has_coverage = _any_sop_covers_categories(real_cats) if real_cats else True
 
+    # -------------------------------------------------------------------------
+    # INDOOR ACTIVITY GUARD
+    # If the user asked about an indoor activity (e.g. gym), and no SOP covers it,
+    # we must NOT claim the weather is safe or produce a "✅ No Safety Concerns" block.
+    # -------------------------------------------------------------------------
+    is_indoor_activity = "indoor_activity" in (real_cats or [])
+    raw_activity = getattr(intent, "raw_activity", None) if intent else None
+    is_gym = raw_activity in {"indoor_gym", "indoor_exercise"} or is_indoor_activity
+
     conditions_block = _build_conditions_block(facts)
     subtitle = f"_{activity.title()} · {time_label}_" if activity and activity != "general" else f"_{time_label}_"
 
-    if not has_coverage and real_cats:
+    if (not has_coverage and real_cats) or is_gym:
         act_display = f"**{activity}**" if activity else "this activity"
-        answer = (
-            f"ℹ️ **No Policy Coverage — {location}**\n"
-            f"{subtitle}\n\n"
-            f"**Recommendation**\n"
-            f"We don't currently have a Standard Operating Procedure (SOP) or verified safety protocol defined for {act_display}. "
-            f"To prevent unverified or hallucinated advice, safety recommendations are strictly provided only for activities governed by our written SOP library.\n\n"
-            f"**{time_label}**\n"
-            f"{conditions_block}\n\n"
-            f"**Severity**\n"
-            f"ℹ️ NO POLICY DEFINED\n\n"
-            f"**Applicable SOP**\n"
-            f"None — No written safety policy covers {act_display}.\n\n"
-            f"**Policy Traceability**\n"
-            f"Evaluated categories `{real_cats}` against loaded SOP catalog. Zero matching procedures exist for this activity.\n\n"
-            f"{_SUPPORTED_ACTIVITIES_LIST}\n\n"
-            f"Please ask about one of the supported activities above for **{location}**."
-        )
+        raw_act_display = raw_activity or activity
+
+        if is_gym:
+            answer = (
+                f"ℹ️ **No Applicable Weather Policy — {location}**\n"
+                f"{subtitle}\n\n"
+                f"**Recommendation**\n"
+                f"No weather-safety policy covers **indoor gym activity**. "
+                f"Since a gym is an indoor environment, weather conditions generally don't affect your session directly.\n\n"
+                f"If you were asking about **traveling to the gym** (e.g. cycling or walking there) "
+                f"or doing an **outdoor workout**, I can help with that — just let me know!\n\n"
+                f"**Severity**\n"
+                f"ℹ️ NO APPLICABLE SOP\n\n"
+                f"**Applicable SOP**\n"
+                f"None — No written weather-safety policy covers indoor gym activity.\n\n"
+                f"**Policy Traceability**\n"
+                f"Evaluated category `indoor_activity` against loaded SOP catalog. "
+                f"Zero matching weather-safety procedures exist for indoor activities.\n\n"
+                f"{_SUPPORTED_ACTIVITIES_LIST}\n\n"
+                f"Please ask about one of the supported **outdoor** activities above for **{location}**."
+            )
+        else:
+            answer = (
+                f"ℹ️ **No Policy Coverage — {location}**\n"
+                f"{subtitle}\n\n"
+                f"**Recommendation**\n"
+                f"We don't currently have a Standard Operating Procedure (SOP) or verified safety protocol defined for {act_display}. "
+                f"To prevent unverified or hallucinated advice, safety recommendations are strictly provided only for activities governed by our written SOP library.\n\n"
+                f"**{time_label}**\n"
+                f"{conditions_block}\n\n"
+                f"**Severity**\n"
+                f"ℹ️ NO POLICY DEFINED\n\n"
+                f"**Applicable SOP**\n"
+                f"None — No written safety policy covers {act_display}.\n\n"
+                f"**Policy Traceability**\n"
+                f"Evaluated categories `{real_cats}` against loaded SOP catalog. Zero matching procedures exist for this activity.\n\n"
+                f"{_SUPPORTED_ACTIVITIES_LIST}\n\n"
+                f"Please ask about one of the supported activities above for **{location}**."
+            )
     else:
         # Collect relevant SOPs that apply to this activity
         eval_sops = []

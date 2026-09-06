@@ -7,6 +7,7 @@ Never guesses coordinates.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Optional, Tuple
 
 import requests
@@ -21,12 +22,21 @@ class GeocodingError(Exception):
     """Raised when geocoding fails for any reason."""
 
 
-import re
+_NON_LOCATION_TERMS = {
+    "gym", "indoor gym", "workout", "fitness", "yoga", "exercise", "match",
+    "cricket", "football", "soccer", "tennis", "badminton", "office", "school",
+    "college", "university", "home", "house", "room", "kitchen", "work", "job",
+    "program", "code", "python", "list", "pasta", "food", "dinner", "lunch",
+    "breakfast", "joke", "story", "song", "movie", "film", "outside", "inside",
+    "now", "today", "tomorrow", "tonight", "this", "safe", "cycling", "walking", "running",
+}
+
 
 def resolve_location(place_name: str) -> Tuple[float, float, str]:
     """
     Resolve a human-readable place name to (latitude, longitude, resolved_name).
     Employs smart multi-candidate fallback for varied phrasing (e.g. 'city of Mumbai', 'near Delhi').
+    Never accepts non-geographic activity terms (e.g. 'gym').
 
     Args:
         place_name: Free-text location (e.g., "Bhopal", "New York, USA", "near Delhi").
@@ -38,7 +48,11 @@ def resolve_location(place_name: str) -> Tuple[float, float, str]:
         GeocodingError: If the location cannot be resolved.
     """
     clean = place_name.strip().strip("\"'").strip()
+    if not clean or clean.lower() in _NON_LOCATION_TERMS:
+        raise GeocodingError(f"'{place_name}' is an activity or non-geographic term, not a valid city/location.")
+
     candidates = [clean]
+
 
     # Candidate 2: Strip leading noise words / prepositions
     no_prep = re.sub(
@@ -89,14 +103,19 @@ def resolve_location(place_name: str) -> Tuple[float, float, str]:
             continue
 
         best = results[0]
+        name = best.get("name", cand)
+        # Prevent airport-code / alias hijacking (e.g. 'gym' -> 'Guaymas')
+        if len(cand) <= 4 and not name.lower().startswith(cand.lower()):
+            continue
+
         lat = best.get("latitude")
         lon = best.get("longitude")
-        name = best.get("name", cand)
         country = best.get("country", "")
         admin1 = best.get("admin1", "")
 
         if lat is None or lon is None:
             continue
+
 
         parts = [p for p in [name, admin1, country] if p]
         canonical = ", ".join(parts)

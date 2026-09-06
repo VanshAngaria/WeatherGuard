@@ -2,6 +2,12 @@
 Intent parsing node.
 Extracts structured intent from user input, resolves session continuity,
 and handles out-of-scope or ambiguous requests.
+
+CRITICAL PIPELINE GATE:
+- OUT_OF_SCOPE  → sets scope_type="irrelevant" → routes to scope_response (NO weather fetch)
+- INCOMPLETE_WEATHER_QUERY → sets needs_clarification=True → routes to clarification_response
+- FOLLOW_UP → merges from prior session context (location/activity/time)
+- WEATHER_ADVISORY → normal pipeline (resolve_location → fetch_weather → …)
 """
 
 from __future__ import annotations
@@ -11,17 +17,21 @@ import re
 from typing import Dict
 
 from app.graph.state import BotState
-from app.llm.intent_parser import _heuristic_parse_intent, parse_intent
+from app.llm.intent_parser import ParsedIntent, _heuristic_parse_intent, parse_intent
 from app.llm.normalizer import normalize_input
 
 logger = logging.getLogger(__name__)
 
+
 def parse_intent_node(state: BotState) -> Dict:
     """
     Parse user message into structured intent and resolve against session state.
-    Implements field-level context merging:
-      - New value exists -> update field
-      - New value missing -> preserve previous context
+
+    Gate logic based on classification_state:
+      OUT_OF_SCOPE          → scope_type="irrelevant"       (stops pipeline)
+      INCOMPLETE_WEATHER_QUERY → needs_clarification=True   (asks user)
+      FOLLOW_UP             → merge context from prior session
+      WEATHER_ADVISORY      → normal pipeline
     """
     user_message = state.get("user_message", "")
     conversation_history = state.get("conversation_history", [])
@@ -60,6 +70,7 @@ def parse_intent_node(state: BotState) -> Dict:
             if has_prior_context:
                 logger.info("Intent unparsed but active session context exists — retaining prior context.")
                 intent = ParsedIntent(
+                    classification_state="FOLLOW_UP",
                     activity_categories=prev_categories or ["general"],
                     mode=prev_mode,
                     group=prev_group,
@@ -76,17 +87,42 @@ def parse_intent_node(state: BotState) -> Dict:
                     "interpreted_as": interpreted_as,
                 }
 
+    classification_state = getattr(intent, "classification_state", "WEATHER_ADVISORY")
+    missing_information = getattr(intent, "missing_information", None)
+
     logger.info(
-        "PARSED NEW INTENT: loc=%s, cats=%s, mode=%s, time=%s, is_follow_up=%s",
-        intent.location, intent.activity_categories, intent.mode, intent.time_context, intent.is_follow_up,
+        "PARSED NEW INTENT: loc=%s, cats=%s, mode=%s, time=%s, state=%s, missing=%s",
+        intent.location, intent.activity_categories, intent.mode,
+        intent.time_context, classification_state, missing_information,
     )
 
-    # Handle empty/unrecognized intents when no context is available
+    # =========================================================================
+    # GATE 1: OUT_OF_SCOPE — stop the pipeline immediately
+    # DO NOT resolve location, DO NOT fetch weather, DO NOT reuse prior context
+    # =========================================================================
+    if classification_state == "OUT_OF_SCOPE":
+        logger.info("Classification: OUT_OF_SCOPE — stopping pipeline, returning scope_response.")
+        updated_history = list(conversation_history) + [
+            {"role": "user", "content": user_message}
+        ]
+        return {
+            "scope_type": "irrelevant",
+            "conversation_history": updated_history,
+            "interpreted_as": interpreted_as,
+            "error": None,
+            "error_type": None,
+        }
+
+    # =========================================================================
+    # GATE 2: Empty/unrecognized intents with no prior context → out-of-scope
+    # =========================================================================
     if (
-        not intent.activity_categories
+        classification_state != "INCOMPLETE_WEATHER_QUERY"
+        and not intent.activity_categories
         and not intent.location
         and not intent.time_context
         and not has_prior_context
+        and not intent.is_follow_up
     ):
         logger.info("Empty intent with no prior context — treating as out-of-scope.")
         updated_history = list(conversation_history) + [
@@ -101,11 +137,14 @@ def parse_intent_node(state: BotState) -> Dict:
         }
 
     # =========================================================================
-    # FIELD-LEVEL CONTEXT MERGING:
-    # 1. Location: new location replaces old; missing location preserves old.
-    # 2. Activity: new activity replaces old; missing activity preserves old.
-    # 3. Time: new time replaces old; missing time preserves old (or defaults to current).
+    # CONTEXT MERGING
+    # Field-level merge strategy:
+    #   1. New value exists → update field
+    #   2. New value missing + FOLLOW_UP → preserve previous context
+    #   3. New value missing + WEATHER_ADVISORY with no prior → leave None
     # =========================================================================
+
+    is_follow_up = (classification_state == "FOLLOW_UP") or intent.is_follow_up
 
     # 1. Location merging
     location_changed = False
@@ -114,7 +153,11 @@ def parse_intent_node(state: BotState) -> Dict:
         if prev_location and merged_location.lower() != prev_location.lower():
             location_changed = True
     elif prev_location:
+        # A weather/activity query without a new location continues using the
+        # established session location (e.g. 'Is it safe to cycle outside?' inherits 'Roorkee')
         merged_location = prev_location
+        is_follow_up = True
+        intent.is_follow_up = True
     else:
         merged_location = None
     intent.location = merged_location
@@ -127,8 +170,8 @@ def parse_intent_node(state: BotState) -> Dict:
 
     has_new_activity = bool(intent.activity_categories or intent.mode or intent.raw_activity)
 
-    if is_pure_weather_query or (location_changed and not intent.is_follow_up and not has_new_activity):
-        # Fresh weather inquiry or independent location switch without follow-up words: reset to general
+    if is_pure_weather_query or (location_changed and not is_follow_up and not has_new_activity):
+        # Fresh weather inquiry or independent location switch without follow-up: reset to general
         merged_activity = "general"
         merged_categories = ["general"]
         merged_mode = None
@@ -170,11 +213,11 @@ def parse_intent_node(state: BotState) -> Dict:
     intent.raw_activity = merged_raw_activity
 
     # 3. Time merging
-    if is_pure_weather_query or (location_changed and not intent.is_follow_up and not intent.time_context):
+    if is_pure_weather_query or (location_changed and not is_follow_up and not intent.time_context):
         merged_time = intent.time_context.strip() if intent.time_context and intent.time_context.strip() else "current"
     elif intent.time_context and intent.time_context.strip():
         merged_time = intent.time_context.strip()
-    elif prev_time:
+    elif (is_follow_up or prev_location) and prev_time:
         merged_time = prev_time
     else:
         merged_time = "current"
@@ -186,11 +229,28 @@ def parse_intent_node(state: BotState) -> Dict:
     )
     logger.info("=== CONTEXT RESOLUTION END ===")
 
-    # Clarification Check: if after merging we STILL have no location, ask for clarification
+    # =========================================================================
+    # GATE 3: INCOMPLETE_WEATHER_QUERY — ask for missing info
+    # Only triggered if REQUIRED information is STILL missing after context merging!
+    # =========================================================================
     needs_clarification = False
+
     if not merged_location:
+        # Still missing location after checking current query and prior session memory
         logger.info("No location resolved from query or session memory — requesting clarification.")
         needs_clarification = True
+        if not merged_activity or merged_activity == "general":
+            missing_information = "location_and_activity"
+        else:
+            missing_information = "location"
+    elif not merged_activity and not is_pure_weather_query:
+        logger.info("No activity resolved from query or session memory — requesting clarification.")
+        needs_clarification = True
+        missing_information = "activity"
+    else:
+        # Location and activity/weather are both satisfied
+        needs_clarification = False
+        missing_information = None
 
     updated_history = list(conversation_history) + [
         {"role": "user", "content": user_message}
@@ -202,6 +262,7 @@ def parse_intent_node(state: BotState) -> Dict:
         "activity": merged_activity or "general",
         "requested_time": merged_time,
         "needs_clarification": needs_clarification,
+        "missing_information": missing_information,
         "scope_type": "relevant",
         "interpreted_as": interpreted_as,
         "location_text": merged_location,
@@ -216,4 +277,3 @@ def parse_intent_node(state: BotState) -> Dict:
         ret["resolved_location"] = None
 
     return ret
-

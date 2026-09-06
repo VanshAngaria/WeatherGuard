@@ -52,24 +52,15 @@ _CANONICAL = {
     "playground": "park",
 }
 
-# Short informal expansions for common patterns
+# Short informal expansions for common patterns (conservative, never inject 'in' into non-locations)
 _INFORMAL_PATTERNS = [
-    # "can i walk roorkee now" → "Can I walk in Roorkee now?"
-    (
-        re.compile(r"^can i (\w+)\s+([a-zA-Z\s]+?)(\s+now|\s+today|\s+tonight)?$", re.I),
-        lambda m: f"Can I {m.group(1)} in {m.group(2).strip()}{m.group(3) or ''}?",
-    ),
     # "is cycling safe delhi today" → "Is cycling safe in Delhi today?"
     (
-        re.compile(r"^is (\w+(?:ing)?)\s+safe\s+([a-zA-Z\s]+?)(\s+today|\s+now|\s+tonight)?$", re.I),
+        re.compile(r"^is (\w+(?:ing)?)\s+safe\s+in\s+([a-zA-Z\s]+?)(\s+today|\s+now|\s+tonight)?$", re.I),
         lambda m: f"Is {m.group(1)} safe in {m.group(2).strip()}{m.group(3) or ''}?",
     ),
-    # "should i take my kid park delhi today"
-    (
-        re.compile(r"^should i take my kid(?:s)?\s+(\w+)\s+([a-zA-Z\s]+?)(\s+today|\s+now)?$", re.I),
-        lambda m: f"Should I take my child to the {m.group(1)} in {m.group(2).strip()}{m.group(3) or ''}?",
-    ),
 ]
+
 
 
 def _correct_activity_typos(message: str) -> Tuple[str, bool]:

@@ -42,11 +42,13 @@ class BotState(TypedDict, total=False):
 
     # --- Intent ---
     intent: Optional[ParsedIntent]
+    intent_categories: Optional[List[str]]  # merged activity categories for SOP matching
 
     # --- Resolved structured context (explicit, not buried in intent blob) ---
     activity: Optional[str]                 # e.g. "cycling", "park visit with child"
     requested_time: Optional[str]           # e.g. "evening", "tomorrow morning"
     needs_clarification: Optional[bool]     # True → route to clarification_response
+    missing_information: Optional[str]      # "location" | "activity" | "location_and_activity" | None
 
     # --- Input normalization ---
     interpreted_as: Optional[str]           # normalized version of user_message if changed
