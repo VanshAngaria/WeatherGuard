@@ -15,22 +15,6 @@ from app.llm.normalizer import normalize_input
 
 logger = logging.getLogger(__name__)
 
-# Heuristic filter for queries completely outside the weather-safety domain
-_IRRELEVANT_KEYWORDS = {
-    "python", "javascript", "code", "program", "algorithm", "database",
-    "capital of", "what is the", "explain", "define", "history of",
-    "write a", "give me a", "tell me about", "who is", "when was",
-    "recipe", "cook", "translate", "convert", "calculate", "math",
-    "joke", "story", "poem", "song", "game",
-}
-
-
-def _is_likely_irrelevant(message: str) -> bool:
-    """Quick check for clearly off-topic queries."""
-    lower = message.lower()
-    return any(kw in lower for kw in _IRRELEVANT_KEYWORDS)
-
-
 def parse_intent_node(state: BotState) -> Dict:
     """
     Parse user message into structured intent and resolve against session state.
@@ -56,20 +40,6 @@ def parse_intent_node(state: BotState) -> Dict:
         "PREVIOUS CONTEXT: location='%s', activity='%s', time='%s'",
         prev_location, prev_activity, prev_time,
     )
-
-    # Fast path for obvious out-of-domain queries when no prior context exists
-    if _is_likely_irrelevant(user_message) and not has_prior_context:
-        logger.info("Heuristic: likely irrelevant query — routing to scope_response.")
-        updated_history = list(conversation_history) + [
-            {"role": "user", "content": user_message}
-        ]
-        return {
-            "scope_type": "irrelevant",
-            "conversation_history": updated_history,
-            "interpreted_as": None,
-            "error": None,
-            "error_type": None,
-        }
 
     # Normalize typos and informal phrasing before calling the LLM
     normalized_message, interpreted_as = normalize_input(user_message)
