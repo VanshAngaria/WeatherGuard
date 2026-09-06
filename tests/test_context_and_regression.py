@@ -190,7 +190,18 @@ def test_9_weather_api_failure():
 def test_10_no_applicable_sop():
     """10. Match SOPs returning empty routes to no_match_response."""
     thread_id = str(uuid.uuid4())
-    with patch("app.graph.nodes.match_sops.match_sops", return_value=[]):
+    mock_facts = WeatherFacts(
+        temperature_2m=25.0,
+        apparent_temperature=25.0,
+        relative_humidity_2m=50.0,
+        wind_speed_10m=10.0,
+        precipitation=0.0,
+        precipitation_probability=10.0,
+        uv_index=3.0,
+        visibility=10000.0,
+    )
+    with patch("app.graph.nodes.fetch_weather.fetch_weather", return_value=mock_facts), \
+         patch("app.graph.nodes.match_sops.match_sops", return_value=[]):
         answer, state = run_graph_full("Is it safe to walk in Bhopal today?", thread_id=thread_id)
         assert state.get("error_type") is None
         assert "No Safety Concerns Identified" in answer or "within normal parameters" in answer
