@@ -56,12 +56,24 @@ def parse_intent_node(state: BotState) -> Dict:
         logger.warning("Gemini parsing failed (%s); trying heuristic fallback.", exc)
         intent = _heuristic_parse_intent(normalized_message)
         if intent is None:
-            logger.error("Intent parsing completely failed: %s", exc)
-            return {
-                "error": f"Intent parsing failed: {exc}",
-                "error_type": "llm_failure",
-                "interpreted_as": interpreted_as,
-            }
+            if has_prior_context:
+                logger.info("Intent unparsed but active session context exists — retaining prior context.")
+                intent = ParsedIntent(
+                    activity_categories=prev_categories or ["general"],
+                    mode=prev_mode,
+                    group=prev_group,
+                    location=prev_location,
+                    time_context=prev_time or "current",
+                    is_follow_up=True,
+                    raw_activity=prev_activity,
+                )
+            else:
+                logger.error("Intent parsing completely failed: %s", exc)
+                return {
+                    "error": f"Intent parsing failed: {exc}",
+                    "error_type": "llm_failure",
+                    "interpreted_as": interpreted_as,
+                }
 
     logger.info(
         "PARSED NEW INTENT: loc=%s, cats=%s, mode=%s, time=%s, is_follow_up=%s",

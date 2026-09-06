@@ -371,13 +371,18 @@ def _heuristic_parse_intent(message: str) -> Optional[ParsedIntent]:
     loc = _extract_heuristic_location(message)
 
     is_follow_up = False
-    if any(w in msg for w in ("what about", "how about", "also", "and", "then", "instead", "what of")):
+    if any(w in msg for w in (
+        "what about", "how about", "also", "and", "then", "instead", "what of",
+        "of it", "for it", "about it", "of this", "for this", "about this",
+        "guideline", "guidelines", "guildline", "guidance", "tell me more",
+        "advice", "tips", "more info", "details", "rules", "what to do", "can i", "is it safe"
+    )):
         is_follow_up = True
     elif (time_ctx and not cats and not loc) or (loc and not cats) or (cats and not loc):
         is_follow_up = True
 
-    # If no activity, no location, and no time context detected, cannot parse intent
-    if not cats and not loc and not time_ctx:
+    # If no activity, no location, and no time context detected, and not a follow-up, cannot parse intent
+    if not cats and not loc and not time_ctx and not is_follow_up:
         return None
 
     return ParsedIntent(
