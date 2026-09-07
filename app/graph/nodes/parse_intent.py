@@ -163,21 +163,20 @@ def parse_intent_node(state: BotState) -> Dict:
     intent.location = merged_location
 
     # 2. Activity merging
-    msg_lower = user_message.lower()
-    has_weather_word = bool(re.search(r'\b(weather|forecast|temp|temperature|climate|conditions?)\b', msg_lower))
-    has_activity_word = bool(re.search(r'\b(cycl|bike|biking|walk|walking|run|running|jog|jogging|picnic|park|drive|driving|car|scooter|ride|riding|swim|swimming|boat|boating|child|children|kid|kids|elder|elderly|senior|stroll|commute)\b', msg_lower))
-    is_pure_weather_query = has_weather_word and not has_activity_word
+    has_explicit_activity = bool(
+        (intent.activity_categories and intent.activity_categories != ["general"])
+        or intent.mode
+        or (intent.raw_activity and intent.raw_activity not in ("general", "weather"))
+    )
 
-    has_new_activity = bool(intent.activity_categories or intent.mode or intent.raw_activity)
-
-    if is_pure_weather_query or (location_changed and not is_follow_up and not has_new_activity):
+    if (location_changed and not is_follow_up and not has_explicit_activity):
         # Fresh weather inquiry or independent location switch without follow-up: reset to general
         merged_activity = "general"
         merged_categories = ["general"]
         merged_mode = None
         merged_group = None
         merged_raw_activity = None
-    elif has_new_activity:
+    elif has_explicit_activity:
         merged_activity = (
             intent.mode
             or intent.raw_activity
@@ -189,15 +188,8 @@ def parse_intent_node(state: BotState) -> Dict:
         merged_raw_activity = intent.raw_activity or intent.mode
     elif has_prior_context and (prev_activity or prev_categories):
         merged_activity = prev_activity
-        merged_categories = (
-            prev_categories
-            or (["outdoor_exercise"] if prev_activity in ["walking", "cycling", "running"] else ["general"])
-        )
-        merged_mode = prev_mode or (
-            prev_activity if prev_activity in [
-                "walking", "cycling", "running", "car", "scooter", "swimming", "boating"
-            ] else None
-        )
+        merged_categories = prev_categories or ["general"]
+        merged_mode = prev_mode
         merged_group = prev_group
         merged_raw_activity = prev_intent.raw_activity if prev_intent else prev_activity
     else:
@@ -213,7 +205,7 @@ def parse_intent_node(state: BotState) -> Dict:
     intent.raw_activity = merged_raw_activity
 
     # 3. Time merging
-    if is_pure_weather_query or (location_changed and not is_follow_up and not intent.time_context):
+    if (merged_categories == ["general"] and not has_explicit_activity) or (location_changed and not is_follow_up and not intent.time_context):
         merged_time = intent.time_context.strip() if intent.time_context and intent.time_context.strip() else "current"
     elif intent.time_context and intent.time_context.strip():
         merged_time = intent.time_context.strip()
@@ -243,7 +235,7 @@ def parse_intent_node(state: BotState) -> Dict:
             missing_information = "location_and_activity"
         else:
             missing_information = "location"
-    elif not merged_activity and not is_pure_weather_query:
+    elif not merged_activity and "general" not in merged_categories:
         logger.info("No activity resolved from query or session memory — requesting clarification.")
         needs_clarification = True
         missing_information = "activity"

@@ -54,6 +54,33 @@ def _build_conditions_block(facts) -> str:
     return "\n".join(lines) if lines else "  • (weather data not available)"
 
 
+def _build_traceability_block(primary, activity: Optional[str] = None, why_text: Optional[str] = None) -> str:
+    """Build deterministic traceable explanation of why this policy applied."""
+    lines = []
+    if activity and activity != "general":
+        lines.append(f"• **Activity**: {activity}")
+    
+    traces = getattr(primary, "condition_traces", [])
+    if traces:
+        for t in traces:
+            field_name = t.get("field", "").replace("_", " ").title()
+            obs = t.get("observed")
+            op = t.get("operator")
+            thresh = t.get("threshold")
+            lines.append(f"• **{field_name}**: {obs} (Policy threshold: {op} {thresh})")
+    elif primary.matched_conditions:
+        for f, val in primary.matched_conditions.items():
+            field_name = f.replace("_", " ").title()
+            lines.append(f"• **{field_name}**: {val}")
+
+    lines.append(f"• **Severity Level**: {primary.severity.upper()}")
+    
+    trace_summary = "\n".join(lines)
+    if why_text and why_text.strip():
+        return f"{why_text.strip()}\n\n{trace_summary}"
+    return trace_summary
+
+
 def _build_structured_response(
     location: str,
     severity: str,
@@ -214,7 +241,7 @@ def generate_response_node(state: BotState) -> Dict:
         from app.graph.nodes.compose_answer import _format_template
         facts_flat = facts.to_facts_dict()
         recommendation = _format_template(primary.advice_template.strip(), facts_flat)
-        why = f"Live conditions met the threshold defined in {primary.sop_id}."
+    traceable_why = _build_traceability_block(primary, activity=activity, why_text=why)
 
     final_answer = _build_structured_response(
         location=location,
@@ -222,7 +249,7 @@ def generate_response_node(state: BotState) -> Dict:
         sop_id=primary.sop_id,
         sop_title=primary.sop_title,
         recommendation=recommendation,
-        why=why,
+        why=traceable_why,
         conditions_block=conditions_block,
         time_label=time_label,
         activity=activity,

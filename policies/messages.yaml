@@ -1,0 +1,102 @@
+# Weather Advisory Bot — Clarification Message Templates
+# Version: 1.0
+#
+# All clarification messages are defined here.
+# The clarification_response node loads these templates at runtime.
+# To customise clarification phrasing, edit ONLY this file — no Python changes needed.
+#
+# Template variables (replaced at runtime):
+#   {activity}          - The display name of the resolved activity (e.g. "Cycling")
+#   {location}          - The resolved location name or "your location"
+#   {time_ref}          - The time reference extracted from the query (e.g. "this evening")
+#   {examples}          - Comma-separated activity examples from the supported SOP catalog
+
+clarification_messages:
+
+  # -------------------------------------------------------------------------
+  # INDOOR ACTIVITY — no outdoor weather policy coverage
+  # Triggered when the resolved activity category is "indoor_activity"
+  # -------------------------------------------------------------------------
+  indoor_activity:
+    title: "🤔 **A question about your indoor plans!**"
+    body: >
+      Indoor activities take place in a controlled environment, so outdoor weather
+      conditions generally do not affect safety directly.
+
+      However, if you are asking about **traveling to the venue** (e.g., walking,
+      cycling, or commuting) or planning an **outdoor workout**, I can check those
+      conditions for you.
+
+      Could you let me know:
+      - **Where** are you located? *(city name)*
+      - Are you asking about **traveling to the venue** or an **outdoor activity**?
+
+  # -------------------------------------------------------------------------
+  # MISSING LOCATION — activity known but city is not provided
+  # -------------------------------------------------------------------------
+  missing_location:
+    title: "🤔 **Which city are you in?**"
+    body: >
+      I'd love to check weather-safety conditions for **{activity}** —
+      just tell me the city and I'll pull up the latest weather and advisory guidance!
+
+  # -------------------------------------------------------------------------
+  # MISSING ACTIVITY — location known but what the user wants to do is unclear
+  # -------------------------------------------------------------------------
+  missing_activity:
+    title: "🤔 **What activity are you planning?**"
+    body: >
+      I can check safety conditions for **{location}** — could you tell me what
+      you're planning to do?
+
+      For example:
+      - *Cycling, walking, running*
+      - *Picnic or park visit*
+      - *Commuting by scooter or car*
+      - *Taking children or elderly outdoors*
+
+  # -------------------------------------------------------------------------
+  # MISSING LOCATION AND ACTIVITY — both unknown
+  # -------------------------------------------------------------------------
+  missing_location_and_activity:
+    title: "🤔 **Could you tell me a bit more?**"
+    body: >
+      I need two things to give you accurate weather-safety guidance:
+
+      - **Where** are you planning to go? *(city name)*
+      - **What activity** are you planning? *(e.g. cycling, walking, picnic)*
+
+  # -------------------------------------------------------------------------
+  # AMBIGUOUS TIME CONTEXT WITH KNOWN LOCATION
+  # Triggered when the time reference is ambiguous and a previous location exists
+  # -------------------------------------------------------------------------
+  ambiguous_time_with_location:
+    title: "🤔 **Could you clarify?**"
+    body: >
+      You asked about **{time_ref}** — did you mean **{time_ref}** in
+      **{location}** for the same activity as before?
+
+      If not, please let me know the location and activity you have in mind.
+
+  # -------------------------------------------------------------------------
+  # AMBIGUOUS TIME CONTEXT WITHOUT KNOWN LOCATION
+  # Triggered when the time reference is ambiguous and no prior location exists
+  # -------------------------------------------------------------------------
+  ambiguous_time_no_location:
+    title: "🤔 **Could you clarify?**"
+    body: >
+      I'm not sure what location or activity you're referring to with "{time_ref}".
+
+      Could you tell me:
+      - **Where** are you planning this activity?
+      - **What** activity are you planning?
+
+  # -------------------------------------------------------------------------
+  # GENERIC FALLBACK — cannot determine what is missing
+  # -------------------------------------------------------------------------
+  generic_fallback:
+    title: "🤔 **Could you clarify?**"
+    body: >
+      I'm not sure what you're asking about. Could you tell me:
+      - **Where** are you planning to go? *(city name)*
+      - **What activity** are you planning? *(e.g. cycling, walking, park visit)*

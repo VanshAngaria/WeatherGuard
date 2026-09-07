@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from app.policy.models import (
     ConditionNode,
@@ -13,6 +13,18 @@ from app.policy.models import (
 logger = logging.getLogger(__name__)
 
 FactsDict = Dict[str, Optional[Any]]
+
+OP_SYMBOLS = {
+    "gt": ">",
+    "gte": ">=",
+    "lt": "<",
+    "lte": "<=",
+    "eq": "==",
+    "ne": "!=",
+    "in": "in",
+    "contains": "contains",
+    "between": "between",
+}
 
 
 def _eval_leaf(condition: LeafCondition, facts: FactsDict) -> bool:
@@ -96,6 +108,39 @@ def evaluate_condition(condition: ConditionNode, facts: FactsDict, score_config:
 def sop_matches(sop: SOP, facts: FactsDict) -> bool:
     """Return True if the SOP condition is satisfied by facts."""
     return evaluate_condition(sop.condition, facts, sop.score_config)
+
+
+def _collect_leaf_conditions(condition: ConditionNode) -> List[LeafCondition]:
+    """Recursively gather all leaf condition nodes."""
+    leaves: List[LeafCondition] = []
+    if condition.type == "leaf":
+        leaves.append(condition)
+    elif condition.type in ("all", "any"):
+        for sub in condition.conditions:
+            leaves.extend(_collect_leaf_conditions(sub))
+    elif condition.type == "not":
+        leaves.extend(_collect_leaf_conditions(condition.condition))
+    return leaves
+
+
+def get_matched_condition_trace(sop: SOP, facts: FactsDict) -> List[Dict[str, Any]]:
+    """
+    Extract structured trace items explaining exactly why this SOP matched:
+    field name, observed value, operator, and threshold value.
+    """
+    trace = []
+    leaves = _collect_leaf_conditions(sop.condition)
+    for leaf in leaves:
+        val = facts.get(leaf.field)
+        if val is not None:
+            trace.append({
+                "field": leaf.field,
+                "observed": val,
+                "operator": OP_SYMBOLS.get(leaf.op, leaf.op),
+                "threshold": leaf.value,
+                "satisfied": _eval_leaf(leaf, facts),
+            })
+    return trace
 
 
 def get_matched_fields(sop: SOP, facts: FactsDict) -> Dict[str, Any]:

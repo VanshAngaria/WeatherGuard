@@ -63,6 +63,9 @@ def match_sops(
         if sop.match_type == "score" and sop.score_config:
             score = compute_score(sop.score_config, augmented_facts)
 
+        from app.policy.evaluator import get_matched_condition_trace
+        traces = get_matched_condition_trace(sop, augmented_facts)
+
         result = MatchResult(
             sop_id=sop.id,
             sop_title=sop.title,
@@ -71,6 +74,7 @@ def match_sops(
             overrides=sop.overrides,
             priority=sop.priority,
             matched_conditions=matched,
+            condition_traces=traces,
             advice_template=sop.advice_template,
             score=score,
         )

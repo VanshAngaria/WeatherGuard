@@ -94,6 +94,7 @@ class MatchResult(BaseModel):
     overrides: bool
     priority: int
     matched_conditions: Dict[str, Any]
+    condition_traces: List[Dict[str, Any]] = Field(default_factory=list)
     advice_template: str
     score: Optional[float] = None
 

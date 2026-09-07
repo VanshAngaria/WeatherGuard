@@ -1,29 +1,12 @@
 from __future__ import annotations
 
-import json
 import logging
 from typing import Dict, List, Optional
 
-from google import genai
-from google.genai import types
-
 from app.graph.state import BotState
-from app.llm.client import get_llm_client, get_model_name
 from app.policy.loader import get_sops
 
 logger = logging.getLogger(__name__)
-
-
-def _any_sop_covers_categories(intent_categories: List[str]) -> bool:
-    """Return True if at least one SOP covers the intent categories."""
-    sops = get_sops()
-    for sop in sops:
-        if "*" in sop.applies_to_categories:
-            return True
-        for cat in intent_categories:
-            if cat in sop.applies_to_categories or cat == sop.category:
-                return True
-    return False
 
 
 def _build_conditions_block(facts) -> str:
@@ -55,48 +38,39 @@ def _build_conditions_block(facts) -> str:
     return "\n".join(lines) if lines else "  • (weather data not available)"
 
 
-_SUPPORTED_ACTIVITIES_LIST = """**Supported activity types include:**
-• 🚴 **Cycling** (commute, road, mountain)
-• 🚶 **Walking & Pedestrian travel**
-• 🏃 **Running & Outdoor exercise**
-• 🚗 **Commuting & Two-wheelers** (motorbikes, scooters)
-• 🧺 **Picnics & Outdoor recreation**
-• 👨‍👩‍👧 **Child outdoor activity**
-• 👴 **Elderly person outdoor activity**"""
+def _get_applicable_sops_for_categories(intent_categories: List[str]):
+    """Return all SOPs from the policy library applicable to the specified intent categories."""
+    sops = get_sops()
+    applicable = []
+    for sop in sops:
+        if intent_categories == ["general"]:
+            if "*" in sop.applies_to_categories or "general" in sop.applies_to_categories or sop.category == "general":
+                applicable.append(sop)
+        else:
+            if any(c in sop.applies_to_categories or c == sop.category for c in intent_categories):
+                applicable.append(sop)
+    return applicable
 
 
-_NO_MATCH_PROMPT = """You are composing the final user-facing response for a weather safety advisory assistant.
-
-The user asked whether an activity or outdoor plan is safe under current/forecast weather conditions.
-FACT: All live weather indicators are safe. None of the adverse safety thresholds were triggered.
-
-Your task: Write two short paragraphs in clear, conversational English:
-1. "recommendation" — directly and conversationally answer the user's question (for example, if they ask "Is it safe?" or "Can I go?", lead directly with a clear verdict: "Yes, it is completely safe to proceed..." or "Yes, conditions remain favorable for..."). Acknowledge the conversation naturally without repeating identical boilerplate sentences from earlier turns.
-2. "why" — a brief, factual explanation that all monitored parameters (rain probability, wind gusts, temperature, visibility) remain safely below hazard limits.
-
-User Query: "{user_query}"
-
-Recent Dialogue Context:
-{conversation_context}
-
-Safe Conditions Context:
-- Location: {location}
-- Activity: {activity}
-- Time: {time_label}
-- Weather Facts: {weather_facts}
-- Evaluated Policies: {evaluated_sops}
-
-Respond with ONLY a JSON object:
-{{"recommendation": "...", "why": "..."}}
-
-Keep each paragraph to 2-3 sentences. Be direct, reassuring, and conversational.
-"""
+def _get_all_supported_categories_summary() -> str:
+    """Dynamically summarize all supported activity domains from loaded SOP definitions."""
+    sops = get_sops()
+    unique_cats = sorted({sop.category for sop in sops if sop.category != "general"})
+    cat_bullets = [f"• **{c.replace('_', ' ').title()}**" for c in unique_cats]
+    return "**Supported activity categories defined in policy catalog:**\n" + "\n".join(cat_bullets)
 
 
 def no_match_response_node(state: BotState) -> Dict:
     """
     Produces a policy-governed advisory response when no safety conditions are exceeded
     or when an unsupported activity is requested.
+
+    Deterministic Guarantee:
+    - Zero LLM calls to invent safety advice or generic recommendations.
+    - Case A: Monitored safety policies apply to the activity/category, and all atmospheric
+      parameters remain safely below hazard limits.
+    - Case B: No applicable SOP exists in the policy library for this activity. Explicitly
+      refuses to claim 'safe' or invent generic advice.
     """
     intent = state.get("intent")
     intent_categories = state.get("intent_categories") or (intent.activity_categories if intent else [])
@@ -109,138 +83,82 @@ def no_match_response_node(state: BotState) -> Dict:
 
     # Filter out 'general' to verify if a specific unsupported activity was asked
     real_cats = [c for c in intent_categories if c != "general"]
-    has_coverage = _any_sop_covers_categories(real_cats) if real_cats else True
+    applicable_sops = _get_applicable_sops_for_categories(real_cats) if real_cats else _get_applicable_sops_for_categories(["general"])
 
-    # -------------------------------------------------------------------------
-    # INDOOR ACTIVITY GUARD
-    # If the user asked about an indoor activity (e.g. gym), and no SOP covers it,
-    # we must NOT claim the weather is safe or produce a "✅ No Safety Concerns" block.
-    # -------------------------------------------------------------------------
+    # Indoor / Unsupported activity check
+    # Check if the categories specifically lack coverage
     is_indoor_activity = "indoor_activity" in (real_cats or [])
-    raw_activity = getattr(intent, "raw_activity", None) if intent else None
-    is_gym = raw_activity in {"indoor_gym", "indoor_exercise"} or is_indoor_activity
+    has_coverage = len(applicable_sops) > 0 and not is_indoor_activity
 
     conditions_block = _build_conditions_block(facts)
     subtitle = f"_{activity.title()} · {time_label}_" if activity and activity != "general" else f"_{time_label}_"
 
-    if (not has_coverage and real_cats) or is_gym:
+    # =========================================================================
+    # CASE B: NO APPLICABLE POLICY COVERAGE
+    # Requirement: Explicitly state that no applicable policy exists. DO NOT say "safe".
+    # =========================================================================
+    if not has_coverage:
         act_display = f"**{activity}**" if activity else "this activity"
-        raw_act_display = raw_activity or activity
+        supported_summary = _get_all_supported_categories_summary()
 
-        if is_gym:
+        if is_indoor_activity:
             answer = (
                 f"ℹ️ **No Applicable Weather Policy — {location}**\n"
                 f"{subtitle}\n\n"
                 f"**Recommendation**\n"
-                f"No weather-safety policy covers **indoor gym activity**. "
-                f"Since a gym is an indoor environment, weather conditions generally don't affect your session directly.\n\n"
-                f"If you were asking about **traveling to the gym** (e.g. cycling or walking there) "
-                f"or doing an **outdoor workout**, I can help with that — just let me know!\n\n"
+                f"No weather-safety policy covers indoor activities such as {act_display}. "
+                f"Since this is an indoor environment, outdoor weather conditions generally do not directly impact safety.\n\n"
+                f"If you were asking about traveling to the venue (e.g., walking or cycling there) "
+                f"or outdoor workouts, please specify the outdoor transit mode.\n\n"
                 f"**Severity**\n"
-                f"ℹ️ NO APPLICABLE SOP\n\n"
+                f"ℹ️ NO APPLICABLE POLICY\n\n"
                 f"**Applicable SOP**\n"
-                f"None — No written weather-safety policy covers indoor gym activity.\n\n"
+                f"None — No standard operating procedure covers indoor activities.\n\n"
                 f"**Policy Traceability**\n"
-                f"Evaluated category `indoor_activity` against loaded SOP catalog. "
-                f"Zero matching weather-safety procedures exist for indoor activities.\n\n"
-                f"{_SUPPORTED_ACTIVITIES_LIST}\n\n"
-                f"Please ask about one of the supported **outdoor** activities above for **{location}**."
+                f"Evaluated category `indoor_activity` against loaded SOP catalog. Zero matching procedures exist.\n\n"
+                f"{supported_summary}\n\n"
+                f"Please ask about one of the supported outdoor activities above for **{location}**."
             )
         else:
             answer = (
-                f"ℹ️ **No Policy Coverage — {location}**\n"
+                f"ℹ️ **No Applicable Policy — {location}**\n"
                 f"{subtitle}\n\n"
                 f"**Recommendation**\n"
-                f"We don't currently have a Standard Operating Procedure (SOP) or verified safety protocol defined for {act_display}. "
-                f"To prevent unverified or hallucinated advice, safety recommendations are strictly provided only for activities governed by our written SOP library.\n\n"
+                f"I don't have an applicable weather-safety policy for {act_display}. "
+                f"To prevent unverified or hallucinated advice, safety recommendations are strictly provided only for activities governed by verified Standard Operating Procedures (SOPs).\n\n"
                 f"**{time_label}**\n"
                 f"{conditions_block}\n\n"
                 f"**Severity**\n"
-                f"ℹ️ NO POLICY DEFINED\n\n"
+                f"ℹ️ NO APPLICABLE POLICY\n\n"
                 f"**Applicable SOP**\n"
-                f"None — No written safety policy covers {act_display}.\n\n"
+                f"None — No standard operating procedure covers {act_display}.\n\n"
                 f"**Policy Traceability**\n"
-                f"Evaluated categories `{real_cats}` against loaded SOP catalog. Zero matching procedures exist for this activity.\n\n"
-                f"{_SUPPORTED_ACTIVITIES_LIST}\n\n"
+                f"Evaluated categories `{real_cats or ['general']}` against loaded SOP catalog. Zero matching procedures exist for this activity.\n\n"
+                f"{supported_summary}\n\n"
                 f"Please ask about one of the supported activities above for **{location}**."
             )
+
+    # =========================================================================
+    # CASE A: POLICY COVERAGE EXISTS, ALL THRESHOLDS SAFE
+    # Deterministic composition: All monitored SOP thresholds verified clear.
+    # =========================================================================
     else:
-        # Collect relevant SOPs that apply to this activity
-        eval_sops = []
-        eval_bullets = []
-        facts_dict = facts.to_facts_dict() if facts else {}
+        eval_bullets = [
+            f"• `{sop.id}` ({sop.title}) — Within safe limits ✅"
+            for sop in applicable_sops
+        ]
+        eval_names = [f"{sop.id} ({sop.title})" for sop in applicable_sops]
+        evaluated_block = "\n".join(eval_bullets[:8])
 
-        for sop in get_sops():
-            if "*" in sop.applies_to_categories or any(c in sop.applies_to_categories for c in intent_categories):
-                eval_sops.append(f"{sop.id} ({sop.title})")
-                eval_bullets.append(f"• `{sop.id}` ({sop.title}) — Within safe limits ✅")
-
-        if not eval_bullets:
-            eval_bullets = [
-                "• `SOP-001` (Extreme Heat) — Within safe limits ✅",
-                "• `SOP-004` (Visibility) — Within safe limits ✅",
-                "• `SOP-012` (Wind Gusts) — Within safe limits ✅",
-                "• `SOP-015` (Rain Probability) — Within safe limits ✅",
-                "• `SOP-005` (Thunderstorm Warning) — Within safe limits ✅",
-                "• `SOP-019` (Regional Storm System) — Within safe limits ✅",
-            ]
-
-        # Build context snippets
-        history_snippets = []
-        for h in conversation_history[-4:]:
-            role = h.get("role", "user").capitalize()
-            content = h.get("content", "")[:250].replace("\n", " ")
-            history_snippets.append(f"{role}: {content}")
-        conversation_context = "\n".join(history_snippets) if history_snippets else "(New conversation session)"
-
-        prompt = _NO_MATCH_PROMPT.format(
-            user_query=user_query,
-            conversation_context=conversation_context,
-            location=location,
-            activity=activity or "general outdoor activity",
-            time_label=time_label,
-            weather_facts=json.dumps(facts_dict, indent=2),
-            evaluated_sops=", ".join(eval_sops[:6]),
+        act_phrase = f"for **{activity}** " if activity and activity != "general" else ""
+        recommendation = (
+            f"Current weather conditions in **{location}** {act_phrase}fall within safe operational thresholds. "
+            f"None of the adverse safety thresholds monitored in our policy library were triggered."
         )
-
-        recommendation = ""
-        why = ""
-
-        try:
-            client = get_llm_client()
-            model = get_model_name()
-            cfg_kwargs = {
-                "response_mime_type": "application/json",
-                "temperature": 0.2,
-                "max_output_tokens": 1024,
-            }
-            if "lite" not in model:
-                cfg_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
-
-            response = client.models.generate_content(
-                model=model,
-                contents=prompt,
-                config=types.GenerateContentConfig(**cfg_kwargs),
-            )
-            raw = response.text.strip()
-            if raw.startswith("```"):
-                raw = raw.split("```")[1].lstrip("json").strip()
-            parsed = json.loads(raw)
-            recommendation = parsed.get("recommendation", "").strip()
-            why = parsed.get("why", "").strip()
-        except Exception as exc:
-            logger.warning("LLM generation in no_match_response failed (%s); using deterministic template.", exc)
-            act_phrase = f"for **{activity}** " if activity and activity != "general" else ""
-            recommendation = (
-                f"Current weather conditions in **{location}** {act_phrase}fall within safe operational thresholds. "
-                f"All monitored atmospheric parameters remain below active hazard limits."
-            )
-            why = (
-                f"Atmospheric observations were verified against active safety policies: "
-                f"{', '.join(eval_sops[:4])}. Live conditions satisfy all safe operational criteria."
-            )
-
-        evaluated_block = "\n".join(eval_bullets[:6])
+        why = (
+            f"Live atmospheric observations were verified against applicable safety policies: "
+            f"{', '.join(eval_names[:4])}. Monitored parameters remain within safe limits."
+        )
 
         answer = (
             f"✅ **No Safety Concerns Identified — {location}**\n"
