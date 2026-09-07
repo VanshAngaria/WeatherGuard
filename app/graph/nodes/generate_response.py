@@ -27,6 +27,18 @@ _SEVERITY_EMOJI = {
 }
 
 
+def _format_template(template: str, facts_dict: dict) -> str:
+    """Safely format a template string with weather facts, leaving unknown keys as-is."""
+    class _SafeDict(dict):
+        def __missing__(self, key):
+            return f"{{{key}}}"
+    try:
+        return template.format_map(_SafeDict(facts_dict))
+    except Exception as exc:
+        logger.warning("Template formatting error: %s", exc)
+        return template
+
+
 def _build_conditions_block(facts) -> str:
     """Build formatted bullet points from non-empty weather facts."""
     lines = []
@@ -238,7 +250,6 @@ def generate_response_node(state: BotState) -> Dict:
         why = parsed.get("why", "").strip()
     except Exception as exc:
         logger.warning("LLM response generation failed (%s); using deterministic template.", exc)
-        from app.graph.nodes.compose_answer import _format_template
         facts_flat = facts.to_facts_dict()
         recommendation = _format_template(primary.advice_template.strip(), facts_flat)
     traceable_why = _build_traceability_block(primary, activity=activity, why_text=why)

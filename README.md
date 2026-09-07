@@ -104,7 +104,8 @@ weather-advisory-support-bot/
 │       ├── models.py        # Typed WeatherFacts container
 │       └── open_meteo.py    # Forecast API client
 ├── policies/
-│   └── sops.yaml            # Declarative safety policies (SOPs)
+│   ├── sops.yaml            # Declarative safety policies (SOPs)
+│   └── messages.yaml        # Clarification message templates (no Python changes needed)
 ├── .streamlit/
 │   └── config.toml          # Streamlit theme & server configuration
 ├── streamlit_app.py         # Main Streamlit web application
@@ -192,34 +193,28 @@ The advisory system evaluates safety policies across key activity domains:
 
 ## 📜 Standard Operating Procedure (SOP) Library
 
-Safety policies are defined declaratively in `policies/sops.yaml`. Adding a new policy requires zero changes to the underlying graph workflow or weather client:
+Safety policies are defined declaratively in `policies/sops.yaml`. Adding a new policy requires **zero changes** to the underlying graph workflow or weather client — only a new YAML entry:
 
 ```yaml
-- id: SOP-001
-  title: Cycling — High Wind Hazard
-  category: travel
-  severity: high
+# Example: SOP-005 — overrides everything when a thunderstorm is detected
+- id: SOP-005
+  title: "Thunderstorm During Any Outdoor Activity"
+  category: outdoor_recreation
+  severity: critical
   match_type: rule
-  overrides: false
-  priority: 10
-  applies_to_categories:
-    - travel
-    - outdoor_exercise
+  overrides: true          # overrides all lower-severity SOPs
+  priority: 1
+  applies_to_categories: ["*"]   # applies to every activity category
   required_fields:
-    - wind_speed_10m
-    - mode
+    - weathercode
   condition:
-    type: all
-    conditions:
-      - type: leaf
-        field: mode
-        op: eq
-        value: cycling
-      - type: leaf
-        field: wind_speed_10m
-        op: gt
-        value: 35
+    type: leaf
+    field: weathercode
+    op: in
+    value: [95, 96, 99]    # WMO thunderstorm codes
   advice_template: >
-    Cycling in {wind_speed_10m} km/h winds is unsafe due to balance and stability risks.
-    Consider alternative transit or postpone until winds subside.
+    🚨 Thunderstorm active (code {weathercode}). Seek shelter immediately.
+    Do not continue any outdoor activity until 30 minutes after the last thunder.
 ```
+
+To add an 11th SOP during a live review call: add a new entry here, restart the app. No Python files change.
